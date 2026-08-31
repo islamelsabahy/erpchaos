@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from erpchaos.effects import EffectMap, project_effect_ledger
 from erpchaos.events import BusinessEvent
 
 
@@ -45,3 +46,15 @@ def project_event_history(events: list[BusinessEvent]) -> dict[str, Any]:
             "types": event_types,
         }
     }
+
+
+def project_business_state(
+    events: list[BusinessEvent],
+    effect_map: EffectMap | None = None,
+) -> dict[str, Any]:
+    """Project event history and, when configured, deterministic business effects."""
+
+    state = project_event_history(events)
+    if effect_map is not None:
+        state["effects"] = project_effect_ledger(events, effect_map)["effects"]
+    return state
