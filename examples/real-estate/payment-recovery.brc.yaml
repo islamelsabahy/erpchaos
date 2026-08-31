@@ -1,0 +1,18 @@
+name: Duplicate Payment Recovery Contract
+version: "1"
+transaction: property-sale-payment-recovery
+contract_type: recovery
+description: Recovery invariants after duplicate payment chaos.
+invariants:
+  - name: payment-reversal-once
+    description: Duplicate payment compensation must create exactly one reversal event.
+    path: history.types.payment_reversed.count
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: reversal-after-last-payment
+    description: Compensation must occur after the final payment callback.
+    path: history.types.payment_reversed.first_position
+    operator: after
+    expected_path: history.types.payment_received.last_position
+    severity: critical
