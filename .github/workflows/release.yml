@@ -62,14 +62,15 @@ jobs:
           python -m build --outdir dist-b
           python -m twine check dist-a/* dist-b/*
 
-      - name: Prove release reproducibility
+      - name: Prove wheel bytes and sdist contents are reproducible
         shell: bash
         run: |
           set -euo pipefail
-          for artifact in dist-a/*; do
-            name="$(basename "$artifact")"
-            cmp "$artifact" "dist-b/$name"
-          done
+          cmp dist-a/*.whl dist-b/*.whl
+          mkdir -p /tmp/sdist-a /tmp/sdist-b
+          tar -xzf dist-a/*.tar.gz -C /tmp/sdist-a
+          tar -xzf dist-b/*.tar.gz -C /tmp/sdist-b
+          diff -ruN /tmp/sdist-a /tmp/sdist-b
 
       - name: Prepare release bundle
         shell: bash
