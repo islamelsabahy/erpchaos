@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import html
 import os
-from pathlib import Path
 import subprocess
 import sys
+from collections.abc import Mapping
+from pathlib import Path
 
 
 VALID_MODES = {"verify", "chaos", "experiment"}
