@@ -6,12 +6,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from erpchaos.effects import EffectMap
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import BusinessEvent, EventStream
 from erpchaos.experiment import ExperimentResult, run_experiment
 from erpchaos.faults import ChaosScenario
 from erpchaos.models import BusinessReliabilityContract
-from erpchaos.projection import project_event_history
+from erpchaos.projection import project_business_state
 
 
 class RecoveryContract(BusinessReliabilityContract):
@@ -72,10 +73,11 @@ def run_recovery_experiment(
     stream: EventStream,
     recovery_contract: RecoveryContract,
     recovery_scenario: RecoveryScenario,
+    effect_map: EffectMap | None = None,
 ) -> RecoveryResult:
     """Apply chaos and deterministic recovery events until recovery is exhausted."""
 
-    chaos_result = run_experiment(business_contract, chaos_scenario, stream)
+    chaos_result = run_experiment(business_contract, chaos_scenario, stream, effect_map)
     if chaos_result.passed:
         raise ValueError("recovery experiments require chaos to fail the business contract first")
 
@@ -90,7 +92,7 @@ def run_recovery_experiment(
 
     checkpoints: list[RecoveryCheckpoint] = []
     ttbc_steps: int | None = None
-    final_state = project_event_history(timeline)
+    final_state = project_business_state(timeline, effect_map)
     final_results = verify_contract(recovery_contract, final_state)
     final_score = reliability_score(final_results)
 
@@ -99,7 +101,7 @@ def run_recovery_experiment(
 
     for step, event in enumerate(recovery_scenario.events, start=1):
         timeline.append(event)
-        final_state = project_event_history(timeline)
+        final_state = project_business_state(timeline, effect_map)
         final_results = verify_contract(recovery_contract, final_state)
         final_score = reliability_score(final_results)
         passed = all(result.passed for result in final_results)
