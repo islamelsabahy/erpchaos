@@ -137,7 +137,7 @@ Synthetic example:
 ```bash
 erpchaos adapter odoo translate \
   examples/odoo/property-sale.export.yaml \
-  /tmp/odoo-event-streams.yaml
+  --output /tmp/odoo-event-streams.yaml
 ```
 
 The resulting YAML contains schema-valid ERPChaos event streams and does not retain the raw transaction identifier used by the source fixture.
@@ -263,7 +263,7 @@ Translate a safe synthetic Odoo export:
 ```bash
 erpchaos adapter odoo translate \
   examples/odoo/property-sale.export.yaml \
-  /tmp/odoo-event-streams.yaml
+  --output /tmp/odoo-event-streams.yaml
 ```
 
 Business-correctness failures use exit code `1`; invalid configuration and adapter input use exit code `2`.
