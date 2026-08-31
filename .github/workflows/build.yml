@@ -41,14 +41,15 @@ jobs:
           python -m twine check dist-a/*
           python -m twine check dist-b/*
 
-      - name: Prove byte reproducibility
+      - name: Prove wheel bytes and sdist contents are reproducible
         shell: bash
         run: |
           set -euo pipefail
-          for artifact in dist-a/*; do
-            name="$(basename "$artifact")"
-            cmp "$artifact" "dist-b/$name"
-          done
+          cmp dist-a/*.whl dist-b/*.whl
+          mkdir -p /tmp/sdist-a /tmp/sdist-b
+          tar -xzf dist-a/*.tar.gz -C /tmp/sdist-a
+          tar -xzf dist-b/*.tar.gz -C /tmp/sdist-b
+          diff -ruN /tmp/sdist-a /tmp/sdist-b
           sha256sum dist-a/*
 
       - name: Install built wheel in a clean environment
