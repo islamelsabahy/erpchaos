@@ -10,9 +10,17 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.engine import reliability_score, verify_contract
+from erpchaos.events import EventStream
+from erpchaos.faults import ChaosScenario
 from erpchaos.models import BusinessReliabilityContract
+from erpchaos.replay import replay
 
 app = typer.Typer(help="Chaos engineering for ERP and business transactions.", no_args_is_help=True)
+chaos_app = typer.Typer(
+    help="Run deterministic business transaction chaos scenarios.",
+    no_args_is_help=True,
+)
+app.add_typer(chaos_app, name="chaos")
 console = Console()
 
 
@@ -62,6 +70,33 @@ def verify(contract: Path, state: Path) -> None:
 
     if any(not result.passed for result in results):
         raise typer.Exit(code=1)
+
+
+@chaos_app.command("run")
+def chaos_run(scenario: Path, stream: Path) -> None:
+    """Apply a deterministic chaos scenario to an ordered business event stream."""
+    try:
+        chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
+        event_stream = EventStream.model_validate(_load_yaml(stream))
+    except ValidationError as exc:
+        console.print(f"[red]Invalid chaos input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    result = replay(event_stream, chaos_scenario)
+    table = Table(title=f"ERPChaos Replay — {result.scenario}")
+    table.add_column("#", justify="right")
+    table.add_column("Event ID")
+    table.add_column("Event Type")
+
+    for index, event in enumerate(result.mutated_events, start=1):
+        table.add_row(str(index), event.event_id, event.event_type)
+
+    console.print(table)
+    console.print(f"Transaction: [bold]{result.transaction_id}[/bold]")
+    console.print(
+        f"Events: {len(result.original_events)} → {len(result.mutated_events)} | "
+        f"Changed: {'yes' if result.changed else 'no'}"
+    )
 
 
 if __name__ == "__main__":

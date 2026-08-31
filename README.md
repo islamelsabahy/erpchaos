@@ -2,9 +2,9 @@
 
 > **Your infrastructure can be green while your business is broken.**
 
-ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, concurrency, partial failure, delayed approvals, integration outages, and other failure modes that can leave technically healthy systems in financially or operationally invalid states.
+ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, and other failure modes that can leave technically healthy systems in financially or operationally invalid states.
 
-ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**.
+ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts** and business event streams as reproducible chaos experiments.
 
 ## Why ERPChaos?
 
@@ -41,21 +41,36 @@ invariants:
 
 ERPChaos evaluates invariant results using severity-weighted scoring and returns a score from `0` to `100`.
 
+### Deterministic transaction replay
+
+ERPChaos represents a transaction as an ordered, vendor-neutral event stream and applies declared faults in a deterministic sequence. The same input stream and scenario always produce the same mutated timeline.
+
+Supported chaos primitives in the current alpha:
+
+- `duplicate_event`
+- `drop_event`
+- `delay_event`
+- `reorder_event`
+- `partial_failure`
+
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail**. Reliability checks stay deterministic, reproducible, and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks and chaos experiments stay deterministic, reproducible, and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.1.0-alpha` currently provides:
+`v0.2.0-alpha` provides:
 
 - Business Reliability Contract model
 - Deterministic invariant evaluator
 - Severity-weighted reliability score
-- CLI verification command
-- Real-estate transaction example
+- Vendor-neutral business event streams
+- Five deterministic fault injection primitives
+- Ordered transaction replay engine
+- CLI verification and chaos replay commands
+- Real-estate transaction examples
 - Automated tests
-- GitHub Actions CI
+- GitHub Actions CI across Python 3.11 and 3.12
 
 ## Quick start
 
@@ -83,16 +98,42 @@ erpchaos verify \
   examples/real-estate/duplicate-payment-state.yaml
 ```
 
-The second command exits non-zero because critical invariants fail, making the result usable as a CI/CD deployment gate.
+Run a deterministic duplicate-payment chaos experiment:
+
+```bash
+erpchaos chaos run \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml
+```
+
+The `verify` command exits non-zero when business invariants fail, making BRC verification usable as a CI/CD deployment gate.
+
+## Architecture direction
+
+The core stays vendor-neutral:
+
+```text
+Business Reliability Contracts
+            |
+      Invariant Engine
+            |
+Event Stream -> Chaos Engine -> Mutated Event Stream
+            |         |
+         Replay     Faults
+            |
+       ERP Adapters
+   Odoo / REST / Webhook / ...
+```
+
+Vendor-specific ERP integrations will translate external activity into ERPChaos event streams and apply replay only in explicitly controlled test environments.
 
 ## Direction
 
 Planned work includes:
 
-- fault injection primitives
-- transaction replay
+- state projection from replayed event streams
 - concurrency experiments
-- duplicate/out-of-order event simulation
+- idempotency assertions over event histories
 - generic REST and webhook adapters
 - Odoo adapter
 - BRC schema versioning
@@ -100,6 +141,7 @@ Planned work includes:
 - incident replay fixtures
 - GitHub Action packaging
 - OpenTelemetry correlation
+- anonymization tooling for production-derived fixtures
 
 ## Project principles
 
@@ -109,6 +151,7 @@ Planned work includes:
 4. Production data must be anonymized before replay.
 5. Vendor-specific ERP behavior belongs behind adapters.
 6. Every new failure mode should be reproducible in CI.
+7. Chaos execution must default to safe, non-production environments.
 
 ## Status
 
