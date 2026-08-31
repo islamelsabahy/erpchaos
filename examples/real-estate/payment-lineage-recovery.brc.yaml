@@ -1,0 +1,28 @@
+name: Causal Payment Recovery Contract
+version: "1"
+transaction: property-sale-causal-payment-recovery
+contract_type: recovery
+description: Verify that duplicate-payment compensation restores one effective payment and reverses the duplicate contribution specifically.
+invariants:
+  - name: one-effective-payment
+    path: effects.payment.balance
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: compensation-lineage-valid
+    path: lineage.payment.valid
+    operator: equals
+    expected: true
+    severity: critical
+  - name: original-payment-remains-active
+    path: lineage.payment.active_origin_ids
+    operator: equals
+    expected:
+      - payment.received
+    severity: critical
+  - name: duplicate-payment-was-compensated
+    path: lineage.payment.compensated_origin_ids
+    operator: equals
+    expected:
+      - payment.received#dup1
+    severity: critical
