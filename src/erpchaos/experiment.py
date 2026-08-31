@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from erpchaos.engine import InvariantResult, reliability_score, verify_contract
+from erpchaos.events import EventStream
+from erpchaos.faults import ChaosScenario
+from erpchaos.models import BusinessReliabilityContract
+from erpchaos.projection import project_event_history
+from erpchaos.replay import ReplayResult, replay
+
+
+@dataclass(frozen=True)
+class ExperimentResult:
+    replay: ReplayResult
+    projected_state: dict[str, Any]
+    invariant_results: list[InvariantResult]
+    score: int
+
+    @property
+    def passed(self) -> bool:
+        return all(result.passed for result in self.invariant_results)
+
+
+def run_experiment(
+    contract: BusinessReliabilityContract,
+    scenario: ChaosScenario,
+    stream: EventStream,
+) -> ExperimentResult:
+    """Replay chaos, project the resulting history, then evaluate the BRC."""
+
+    replay_result = replay(stream, scenario)
+    projected_state = project_event_history(replay_result.mutated_events)
+    invariant_results = verify_contract(contract, projected_state)
+
+    return ExperimentResult(
+        replay=replay_result,
+        projected_state=projected_state,
+        invariant_results=invariant_results,
+        score=reliability_score(invariant_results),
+    )

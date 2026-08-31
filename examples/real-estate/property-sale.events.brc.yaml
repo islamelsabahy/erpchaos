@@ -1,0 +1,35 @@
+name: Property Sale Event Reliability Contract
+version: "1"
+transaction: property-sale-event-history
+description: Reliability invariants evaluated after deterministic event-stream chaos replay.
+invariants:
+  - name: payment-idempotency
+    description: A property sale must contain exactly one payment received event.
+    path: history.types.payment_received.count
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: commission-idempotency
+    description: Commission creation must occur exactly once.
+    path: history.types.commission_created.count
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: unit-sold-once
+    description: The unit sold event must occur exactly once.
+    path: history.types.unit_sold.count
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: finance-approval-present
+    description: Finance approval must remain in the transaction history.
+    path: history.types.finance_approved.count
+    operator: equals
+    expected: 1
+    severity: high
+  - name: contract-generated-once
+    description: Contract generation must occur exactly once.
+    path: history.types.contract_generated.count
+    operator: equals
+    expected: 1
+    severity: high
