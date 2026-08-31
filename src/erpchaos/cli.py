@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 import yaml
@@ -166,7 +166,10 @@ def experiment_run(
     contract: Path,
     scenario: Path,
     stream: Path,
-    effect_map: Path | None = None,
+    effect_map: Annotated[
+        Path | None,
+        typer.Option("--effect-map", help="Optional Business Effect Ledger map YAML."),
+    ] = None,
 ) -> None:
     """Run chaos and evaluate history plus optional net business effects."""
     try:
@@ -200,7 +203,10 @@ def recovery_run(
     stream: Path,
     recovery_contract: Path,
     recovery_scenario: Path,
-    effect_map: Path | None = None,
+    effect_map: Annotated[
+        Path | None,
+        typer.Option("--effect-map", help="Optional Business Effect Ledger map YAML."),
+    ] = None,
 ) -> None:
     """Run chaos, compensation, and optional effect-aware business recovery scoring."""
     try:
