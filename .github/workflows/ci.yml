@@ -28,5 +28,7 @@ jobs:
         run: mypy src
       - name: Tests
         run: pytest --cov=erpchaos --cov-report=term-missing
-      - name: Smoke test CLI
+      - name: Smoke test BRC verification
         run: erpchaos verify examples/real-estate/property-sale.brc.yaml examples/real-estate/healthy-state.yaml
+      - name: Smoke test chaos replay
+        run: erpchaos chaos run examples/real-estate/duplicate-payment.scenario.yaml examples/real-estate/property-sale.events.yaml
