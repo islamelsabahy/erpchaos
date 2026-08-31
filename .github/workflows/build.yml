@@ -31,33 +31,35 @@ jobs:
       - name: Set reproducible build epoch
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
-      - name: Build twice
+      - name: Build twice outside the source tree
         run: |
-          python -m build --outdir dist-a
-          python -m build --outdir dist-b
+          rm -rf /tmp/erpchaos-dist-a /tmp/erpchaos-dist-b
+          python -m build --outdir /tmp/erpchaos-dist-a
+          python -m build --outdir /tmp/erpchaos-dist-b
 
       - name: Validate package metadata
         run: |
-          python -m twine check dist-a/*
-          python -m twine check dist-b/*
+          python -m twine check /tmp/erpchaos-dist-a/*
+          python -m twine check /tmp/erpchaos-dist-b/*
 
       - name: Prove wheel bytes and sdist contents are reproducible
         shell: bash
         run: |
           set -euo pipefail
-          cmp dist-a/*.whl dist-b/*.whl
+          cmp /tmp/erpchaos-dist-a/*.whl /tmp/erpchaos-dist-b/*.whl
+          rm -rf /tmp/sdist-a /tmp/sdist-b
           mkdir -p /tmp/sdist-a /tmp/sdist-b
-          tar -xzf dist-a/*.tar.gz -C /tmp/sdist-a
-          tar -xzf dist-b/*.tar.gz -C /tmp/sdist-b
+          tar -xzf /tmp/erpchaos-dist-a/*.tar.gz -C /tmp/sdist-a
+          tar -xzf /tmp/erpchaos-dist-b/*.tar.gz -C /tmp/sdist-b
           diff -ruN /tmp/sdist-a /tmp/sdist-b
-          sha256sum dist-a/*
+          sha256sum /tmp/erpchaos-dist-a/*
 
       - name: Install built wheel in a clean environment
         shell: bash
         run: |
           set -euo pipefail
           python -m venv /tmp/erpchaos-package-test
-          /tmp/erpchaos-package-test/bin/python -m pip install dist-a/*.whl
+          /tmp/erpchaos-package-test/bin/python -m pip install /tmp/erpchaos-dist-a/*.whl
           /tmp/erpchaos-package-test/bin/erpchaos --help >/dev/null
           /tmp/erpchaos-package-test/bin/python - <<'PY'
           import erpchaos
@@ -67,7 +69,7 @@ jobs:
       - name: Prepare build artifact
         run: |
           mkdir -p dist
-          cp dist-a/* dist/
+          cp /tmp/erpchaos-dist-a/* dist/
           (cd dist && sha256sum * > SHA256SUMS)
 
       - name: Upload package artifact
