@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build attest and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install release tooling
+        run: |
+          python -m pip install \
+            "build==1.6.0" \
+            "twine==7.0.0" \
+            "cyclonedx-bom==7.3.1"
+
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(data['project']['version'])
+          PY
+          )"
+          tag_version="${GITHUB_REF_NAME#v}"
+          test "$tag_version" = "$project_version"
+          echo "ERPCHAOS_VERSION=$project_version" >> "$GITHUB_ENV"
+
+      - name: Set reproducible build epoch
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Build release twice outside the source tree
+        run: |
+          rm -rf /tmp/erpchaos-dist-a /tmp/erpchaos-dist-b
+          python -m build --outdir /tmp/erpchaos-dist-a
+          python -m build --outdir /tmp/erpchaos-dist-b
+          python -m twine check /tmp/erpchaos-dist-a/* /tmp/erpchaos-dist-b/*
+
+      - name: Prove wheel bytes and sdist contents are reproducible
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp /tmp/erpchaos-dist-a/*.whl /tmp/erpchaos-dist-b/*.whl
+          rm -rf /tmp/sdist-a /tmp/sdist-b
+          mkdir -p /tmp/sdist-a /tmp/sdist-b
+          tar -xzf /tmp/erpchaos-dist-a/*.tar.gz -C /tmp/sdist-a
+          tar -xzf /tmp/erpchaos-dist-b/*.tar.gz -C /tmp/sdist-b
+          diff -ruN /tmp/sdist-a /tmp/sdist-b
+
+      - name: Prepare release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp /tmp/erpchaos-dist-a/* dist/
+          python -m venv /tmp/erpchaos-release-env
+          /tmp/erpchaos-release-env/bin/python -m pip install dist/*.whl
+          /tmp/erpchaos-release-env/bin/erpchaos --help >/dev/null
+          cyclonedx-py environment \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file "dist/erpchaos-${ERPCHAOS_VERSION}.sbom.cdx.json" \
+            /tmp/erpchaos-release-env
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+      - name: Attest wheel SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*.whl
+          sbom-path: dist/erpchaos-${{ env.ERPCHAOS_VERSION }}.sbom.cdx.json
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: erpchaos-release-${{ env.ERPCHAOS_VERSION }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prerelease=""
+          if [[ "$ERPCHAOS_VERSION" =~ (a|b|rc)[0-9]+ ]]; then
+            prerelease="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/* \
+            --verify-tag \
+            --generate-notes \
+            --title "ERPChaos $GITHUB_REF_NAME" \
+            $prerelease

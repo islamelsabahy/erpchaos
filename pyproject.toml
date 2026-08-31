@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "erpchaos"
-version = "0.13.0a0"
+version = "0.14.0a0"
 description = "Chaos engineering for ERP and business transactions."
 readme = "README.md"
 requires-python = ">=3.11"
