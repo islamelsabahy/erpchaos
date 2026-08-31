@@ -94,7 +94,7 @@ A `reorder_event` fault can move payment ahead of finance approval while preserv
 
 ### Deterministic concurrency
 
-ERPChaos can also model multiple transactions competing for the same business resource. Concurrency schedules are explicit rather than random, so a race can be replayed exactly in CI.
+ERPChaos can model multiple transactions competing for the same business resource. Concurrency schedules are explicit rather than random, so a race can be replayed exactly in CI.
 
 ```yaml
 name: Double reservation race
@@ -114,6 +114,33 @@ schedule:
 ```
 
 Each schedule entry consumes the next event from that transaction. If both transactions emit `reservation.succeeded` while `max_successes` is `1`, ERPChaos reports a **Business Race Condition** and fails with exit code `1`.
+
+### Safe Odoo read adapter
+
+The first ERP-specific adapter boundary translates previously exported Odoo-like activity into the same vendor-neutral `EventStream` format used by the core engine.
+
+The current adapter is deliberately constrained:
+
+- `read_only` must be `true`
+- only `demo`, `test`, and `staging` environments are accepted
+- credentials are not part of the configuration schema
+- credentials embedded in URLs are rejected
+- query strings and fragments in adapter URLs are rejected
+- payload fields are explicit allowlists
+- password, secret, token, API-key, credential, and session fields are rejected
+- transaction and activity identifiers are deterministically hashed before export
+- unmapped source activity fails closed instead of being silently dropped
+- the adapter does not contact Odoo; it translates an already exported fixture
+
+Synthetic example:
+
+```bash
+erpchaos adapter odoo translate \
+  examples/odoo/property-sale.export.yaml \
+  /tmp/odoo-event-streams.yaml
+```
+
+The resulting YAML contains schema-valid ERPChaos event streams and does not retain the raw transaction identifier used by the source fixture.
 
 ### Chaos experiment
 
@@ -146,11 +173,11 @@ Transaction B ----/
 
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, and concurrency experiments stay deterministic, reproducible, and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, concurrency experiments, and ERP translation remain deterministic and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.5.0-alpha` provides:
+`v0.6.0-alpha` provides:
 
 - Business Reliability Contract model
 - Deterministic invariant evaluator
@@ -164,8 +191,12 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - Deterministic competing-transaction interleaving
 - Shared-resource exclusivity evaluation
 - Business Race Condition detection
-- CLI verification, replay, experiment, and concurrency commands
-- Real-estate duplicate-payment, early-payment, and double-reservation scenarios
+- ERP adapter protocol boundary
+- Safe offline Odoo export adapter
+- Deterministic source identifier hashing
+- Allowlist-only Odoo payload translation
+- CLI verification, replay, experiment, concurrency, and adapter commands
+- Real-estate and synthetic Odoo examples
 - Automated tests
 - GitHub Actions CI across Python 3.11 and 3.12
 
@@ -227,7 +258,15 @@ erpchaos concurrency run \
   examples/real-estate/double-reservation.concurrent.yaml
 ```
 
-The double-reservation command exits with code `1` because two competing transactions succeeded against one resource where only one success is allowed. Invalid configuration uses exit code `2`.
+Translate a safe synthetic Odoo export:
+
+```bash
+erpchaos adapter odoo translate \
+  examples/odoo/property-sale.export.yaml \
+  /tmp/odoo-event-streams.yaml
+```
+
+Business-correctness failures use exit code `1`; invalid configuration and adapter input use exit code `2`.
 
 ## Architecture direction
 
@@ -245,19 +284,23 @@ Competing Event Streams -> Deterministic Scheduler -> Exclusivity Engine
                                   |                    |
                            Shared Resource             BRS
 
+Odoo Export -> Safe Odoo Read Adapter -> Vendor-neutral Event Streams
+                     |
+              allowlist + hashing
+
                      ERP Adapter Boundary
               Odoo / REST / Webhook / future adapters
 ```
 
-Vendor-specific ERP integrations will translate external activity into ERPChaos event streams and execute only inside explicitly controlled test environments.
+Vendor-specific integrations must remain behind the adapter boundary. Any future live connector should begin read-only, use runtime-only authentication, and explicitly refuse destructive production execution.
 
 ## Direction
 
 Planned work includes:
 
 - richer shared-resource and history-aware invariants
+- runtime-authenticated read-only Odoo extraction
 - generic REST and webhook adapters
-- safe Odoo adapter
 - BRC schema versioning
 - recovery scoring
 - anonymized incident replay fixtures
@@ -274,6 +317,7 @@ Planned work includes:
 6. Every new failure mode should be reproducible in CI.
 7. Chaos execution must default to safe, non-production environments.
 8. Concurrency schedules must be reproducible rather than timing-dependent.
+9. ERP adapters must fail closed and must not store credentials in fixtures.
 
 ## Status
 
