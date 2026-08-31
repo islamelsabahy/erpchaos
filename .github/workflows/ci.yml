@@ -91,6 +91,27 @@ jobs:
           for stream in document['streams']:
               EventStream.model_validate(stream)
           PY
+      - name: Smoke test incident sanitization
+        env:
+          ERPCHAOS_PSEUDONYM_KEY: synthetic-ci-pseudonym-key-12345
+        run: |
+          erpchaos incident sanitize \
+            examples/incidents/property-sale.raw.synthetic.yaml \
+            examples/incidents/property-sale.policy.yaml \
+            --output /tmp/property-sale.safe.yaml
+          erpchaos incident validate /tmp/property-sale.safe.yaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          from erpchaos.events import EventStream
+
+          text = Path('/tmp/property-sale.safe.yaml').read_text(encoding='utf-8')
+          assert 'INCIDENT-SALE-001' not in text
+          assert 'alice@example.test' not in text
+          assert '+20 100 000 0000' not in text
+          assert 'synthetic-secret-value' not in text
+          EventStream.model_validate(yaml.safe_load(text))
+          PY
 
   action-smoke:
     name: composite action contract
