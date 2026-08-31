@@ -1,0 +1,64 @@
+name: ERPChaos Business Reliability Gate
+description: Deterministic ERP and business-transaction reliability checks for CI/CD.
+author: Islam El-Sabahy
+
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  mode:
+    description: One of verify, chaos, or experiment.
+    required: true
+    default: verify
+  contract:
+    description: Path to a Business Reliability Contract YAML file.
+    required: false
+    default: ""
+  state:
+    description: Path to a transaction-state YAML file for verify mode.
+    required: false
+    default: ""
+  scenario:
+    description: Path to a chaos scenario YAML file for chaos or experiment mode.
+    required: false
+    default: ""
+  stream:
+    description: Path to an event-stream YAML file for chaos or experiment mode.
+    required: false
+    default: ""
+  python-version:
+    description: Python version used to run ERPChaos.
+    required: false
+    default: "3.12"
+
+outputs:
+  status:
+    description: PASS, BUSINESS_FAILURE, INVALID_INPUT, or EXECUTION_ERROR.
+    value: ${{ steps.erpchaos.outputs.status }}
+  exit-code:
+    description: ERPChaos exit code. 0=pass, 1=business failure, 2=invalid input/config.
+    value: ${{ steps.erpchaos.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install ERPChaos
+      shell: bash
+      run: python -m pip install "${GITHUB_ACTION_PATH}"
+
+    - name: Run ERPChaos gate
+      id: erpchaos
+      shell: bash
+      env:
+        ERPCHAOS_ACTION_MODE: ${{ inputs.mode }}
+        ERPCHAOS_ACTION_CONTRACT: ${{ inputs.contract }}
+        ERPCHAOS_ACTION_STATE: ${{ inputs.state }}
+        ERPCHAOS_ACTION_SCENARIO: ${{ inputs.scenario }}
+        ERPCHAOS_ACTION_STREAM: ${{ inputs.stream }}
+      run: python -m erpchaos.github_action
