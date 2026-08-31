@@ -131,6 +131,34 @@ jobs:
             echo "Expected wrong-target causal recovery exit code 1, got $status"
             exit 1
           fi
+      - name: Smoke test minimal causal repair synthesis
+        run: |
+          erpchaos repair synthesize \
+            examples/real-estate/payment-effect.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-repair.catalog.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml
+      - name: Smoke test exhausted repair synthesis
+        shell: bash
+        run: |
+          set +e
+          erpchaos repair synthesize \
+            examples/real-estate/payment-effect.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-repair-no-solution.catalog.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected exhausted repair search exit code 1, got $status"
+            exit 1
+          fi
       - name: Smoke test recovery regression detection
         shell: bash
         run: |
