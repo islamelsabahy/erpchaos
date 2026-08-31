@@ -1,0 +1,6 @@
+name: Reverse duplicate payment once
+events:
+  - event_id: payment.reversed
+    event_type: payment.reversed
+    payload:
+      reason: duplicate-callback-compensation
