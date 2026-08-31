@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import BusinessEvent, EventStream
@@ -20,7 +20,7 @@ class RecoveryContract(BusinessReliabilityContract):
     contract_type: Literal["recovery"] = "recovery"
 
 
-class RecoveryScenario(BusinessReliabilityContract.__base__):
+class RecoveryScenario(BaseModel):
     """Ordered compensating events applied after a known chaos-induced business failure."""
 
     name: str = Field(min_length=1)
@@ -80,7 +80,9 @@ def run_recovery_experiment(
 
     timeline = list(chaos_result.replay.mutated_events)
     existing_ids = {event.event_id for event in timeline}
-    duplicate_ids = [event.event_id for event in recovery_scenario.events if event.event_id in existing_ids]
+    duplicate_ids = [
+        event.event_id for event in recovery_scenario.events if event.event_id in existing_ids
+    ]
     if duplicate_ids:
         names = ", ".join(sorted(set(duplicate_ids)))
         raise ValueError(f"recovery event IDs must not reuse post-chaos event IDs: {names}")
