@@ -12,8 +12,13 @@ from rich.table import Table
 from erpchaos.engine import reliability_score, verify_contract
 from erpchaos.models import BusinessReliabilityContract
 
-app = typer.Typer(help="Chaos engineering for ERP and business transactions.")
+app = typer.Typer(help="Chaos engineering for ERP and business transactions.", no_args_is_help=True)
 console = Console()
+
+
+@app.callback()
+def main() -> None:
+    """ERPChaos command-line interface."""
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
