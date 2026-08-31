@@ -4,8 +4,8 @@ import html
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 
 VALID_MODES = {"verify", "chaos", "experiment"}
