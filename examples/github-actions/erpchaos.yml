@@ -1,0 +1,33 @@
+name: Business Reliability
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-business-state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Business Reliability Contract
+        uses: islamelsabahy/erpchaos@v0.7.0-alpha
+        with:
+          mode: verify
+          contract: reliability/property-sale.brc.yaml
+          state: reliability/property-sale-state.yaml
+
+  chaos-experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deterministic chaos experiment
+        uses: islamelsabahy/erpchaos@v0.7.0-alpha
+        with:
+          mode: experiment
+          contract: reliability/property-sale.events.brc.yaml
+          scenario: reliability/duplicate-payment.scenario.yaml
+          stream: reliability/property-sale.events.yaml
