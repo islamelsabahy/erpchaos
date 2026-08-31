@@ -1,0 +1,24 @@
+name: Effective Payment Recovery Contract
+version: "1"
+transaction: property-sale-payment-effect-recovery
+contract_type: recovery
+description: Verify that duplicate-payment compensation restores one effective payment without invalid negative balance history.
+invariants:
+  - name: one-effective-payment
+    description: The recovered transaction must retain exactly one effective payment.
+    path: effects.payment.balance
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: payment-effect-never-negative
+    description: Compensation must never create an orphan or over-reversed payment effect.
+    path: effects.payment.ever_negative
+    operator: equals
+    expected: false
+    severity: critical
+  - name: reversal-after-last-payment
+    description: Compensation must occur after the final payment callback.
+    path: history.types.payment_reversed.first_position
+    operator: after
+    expected_path: history.types.payment_received.last_position
+    severity: critical

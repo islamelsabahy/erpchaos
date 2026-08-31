@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from erpchaos.effects import EffectMap
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
 from erpchaos.faults import ChaosScenario
 from erpchaos.models import BusinessReliabilityContract
-from erpchaos.projection import project_event_history
+from erpchaos.projection import project_business_state
 from erpchaos.replay import ReplayResult, replay
 
 
@@ -27,11 +28,12 @@ def run_experiment(
     contract: BusinessReliabilityContract,
     scenario: ChaosScenario,
     stream: EventStream,
+    effect_map: EffectMap | None = None,
 ) -> ExperimentResult:
-    """Replay chaos, project the resulting history, then evaluate the BRC."""
+    """Replay chaos, project business state, then evaluate the BRC."""
 
     replay_result = replay(stream, scenario)
-    projected_state = project_event_history(replay_result.mutated_events)
+    projected_state = project_business_state(replay_result.mutated_events, effect_map)
     invariant_results = verify_contract(contract, projected_state)
 
     return ExperimentResult(

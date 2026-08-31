@@ -2,19 +2,20 @@
 
 > **Your infrastructure can be green while your business is broken.**
 
-ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, competing transactions, and failed recovery paths that can leave technically healthy systems in financially or operationally invalid states.
+ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, competing transactions, compensation errors, and failed recovery paths that can leave technically healthy systems in financially or operationally invalid states.
 
-ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, and recovery behavior as something that can be measured and gated in CI.
+ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, net business effects as deterministic ledgers, and recovery behavior as something that can be measured and gated in CI.
 
 ## Why ERPChaos?
 
 Traditional chaos engineering asks whether infrastructure survives failure.
 
-ERPChaos asks three different questions:
+ERPChaos asks four different questions:
 
 1. **Did the business transaction remain correct when failure happened?**
-2. **If it broke, did the compensating business flow actually recover it?**
-3. **Did the recovered state stay consistent, or did recovery regress later?**
+2. **What effective business state remains after retries, duplicates, and compensations?**
+3. **If it broke, did the compensating business flow actually recover it?**
+4. **Did the recovered state stay consistent, or did recovery regress later?**
 
 Examples:
 
@@ -25,6 +26,7 @@ Examples:
 - Can out-of-order events corrupt a workflow while every service still reports healthy?
 - Can a real incident be converted into a safe deterministic regression fixture without committing PII or credentials?
 - Can a duplicate payment be compensated correctly, and can ERPChaos prove the recovery stays stable?
+- Can two payment callbacks plus one reversal be verified as **one effective payment** instead of merely three historical events?
 
 ## Core concepts
 
@@ -96,6 +98,72 @@ Counts alone are not enough. A transaction can contain all required events and s
 
 A `reorder_event` fault can move payment ahead of finance approval while preserving every event count. ERPChaos detects that semantic failure through the ordering invariant.
 
+### Business Effect Ledger (BEL)
+
+Event history answers **what happened**. The Business Effect Ledger answers **what business effect remains**.
+
+A vendor-neutral effect map assigns signed integer contributions to event types:
+
+```yaml
+schema: erpchaos.effect-map.v1
+name: Property sale business effects
+effects:
+  payment:
+    contributions:
+      payment.received: 1
+      payment.reversed: -1
+  commission:
+    contributions:
+      commission.created: 1
+      commission.voided: -1
+```
+
+For this sequence:
+
+```text
+payment.received
+payment.received
+payment.reversed
+```
+
+ERPChaos can project:
+
+```yaml
+effects:
+  payment:
+    balance: 1
+    min_balance: 0
+    max_balance: 2
+    contribution_count: 3
+    ever_negative: false
+```
+
+The transaction therefore contains three relevant historical events but ends with **one effective payment**.
+
+The ledger also preserves trajectory information. A reversal before any receipt can end at balance `0` later while still exposing `min_balance: -1` and `ever_negative: true`, allowing a BRC to detect an orphan compensation that a final-balance-only check would miss.
+
+Project a ledger directly:
+
+```bash
+erpchaos effect project \
+  examples/real-estate/property-sale.events.yaml \
+  examples/real-estate/property-sale.effects.yaml
+```
+
+Run an effect-aware chaos experiment:
+
+```bash
+erpchaos experiment run \
+  examples/real-estate/payment-effect.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml
+```
+
+The `--effect-map` option is optional, so existing history-only experiment contracts remain compatible.
+
+See [`docs/BUSINESS_EFFECT_LEDGER.md`](docs/BUSINESS_EFFECT_LEDGER.md) for effect semantics, over-compensation, orphan reversals, and contract examples.
+
 ### Business Recovery Engineering
 
 ERPChaos can continue after a known chaos-induced business failure and evaluate ordered compensating events against a dedicated `RecoveryContract`.
@@ -128,16 +196,19 @@ Recovery results include:
 - **Recovery status** — `RECOVERED`, `PARTIALLY_RECOVERED`, or `UNRECOVERED`.
 - **Recovery regression detection** — identifies a transaction that reached consistency and then became inconsistent again because of later compensation.
 
-Example:
+History and business effects can be evaluated together during recovery:
 
 ```bash
 erpchaos recovery run \
   examples/real-estate/property-sale.events.brc.yaml \
   examples/real-estate/duplicate-payment.scenario.yaml \
   examples/real-estate/property-sale.events.yaml \
-  examples/real-estate/payment-recovery.brc.yaml \
-  examples/real-estate/payment-recovered.recovery.yaml
+  examples/real-estate/payment-effect-recovery.brc.yaml \
+  examples/real-estate/payment-recovered.recovery.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml
 ```
+
+This can prove that compensation occurred in the correct order **and** restored the expected net business effect.
 
 See [`docs/RECOVERY_ENGINEERING.md`](docs/RECOVERY_ENGINEERING.md) for the full recovery model and CI contract.
 
@@ -216,10 +287,10 @@ The repository raw incident example is synthetic only. Real raw incident capture
 
 ### GitHub Action
 
-ERPChaos can also be consumed directly as a composite GitHub Action. A known-good immutable reference from the v0.8 mainline is:
+ERPChaos can also be consumed directly as a composite GitHub Action. A known-good immutable reference from the v0.9 mainline is:
 
 ```yaml
-- uses: islamelsabahy/erpchaos@a297e940dd6255dd3148838bfa78e980329dccb1
+- uses: islamelsabahy/erpchaos@9d5297ca95ac39c19ed1a6707043d61e943bf2f7
   with:
     mode: experiment
     contract: reliability/property-sale.events.brc.yaml
@@ -234,30 +305,33 @@ The Action preserves the CLI exit-code contract and publishes `status` plus `exi
 A standard chaos experiment closes the single-transaction reliability loop:
 
 ```text
-Event Stream
-    |
-Fault Injection
-    |
-Deterministic Replay
-    |
-History Projection
-    |
-BRC Evaluation
-    |
-Business Reliability Score
+                            +-> Event History ----+
+Event Stream -> Chaos -> Replay                  +-> Combined Business State -> BRC -> BRS
+                            +-> Effect Ledger ----+
+                                  optional
 ```
 
-A recovery experiment extends the loop after a business failure:
+A compensation-aware recovery experiment extends the same state projection after every recovery step:
 
 ```text
-Event Stream -> Chaos -> Failed Projection -> Recovery Event 1 -> Recovery Contract
-                                                    |
-                                                    v
-                                                   RRS
-                                                    |
-                                   Recovery Event N -> Final Status
-                                                    |
-                                      TTBC + Regression Detection
+Event Stream -> Chaos -> Failed Business State
+                         |
+                         v
+                  Recovery Event 1
+                         |
+              +----------+----------+
+              |                     |
+        Event History         Effect Ledger
+              |                     |
+              +----------+----------+
+                         |
+                 Recovery Contract -> RRS
+                         |
+                  Recovery Event N
+                         |
+               TTBC + Final Status
+                         |
+               Regression Detection
 ```
 
 A concurrency experiment evaluates a shared-resource race:
@@ -279,16 +353,16 @@ Local Raw Incident -> Sanitization Policy -> HMAC Pseudonyms -> Leak Validation
                                                                v
                                                      Safe EventStream Fixture
                                                                |
-                                                  Replay / Chaos / Recovery
+                                             Replay / Effects / Chaos / Recovery
 ```
 
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, recovery evaluation, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, history projection, effect-ledger projection, replay, recovery evaluation, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.9.0-alpha` development provides:
+`v0.10.0-alpha` development provides:
 
 - Business Reliability Contract model
 - deterministic invariant evaluator
@@ -298,6 +372,11 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - five deterministic fault injection primitives
 - ordered transaction replay engine
 - deterministic event-history projection
+- Business Effect Ledger effect maps
+- deterministic signed-integer effect projection
+- effect `balance`, `min_balance`, `max_balance`, `contribution_count`, and `ever_negative`
+- combined history + business-effect contract state
+- effect-aware chaos and recovery experiments
 - end-to-end post-chaos BRC evaluation
 - deterministic Business Recovery Engineering
 - Recovery Contracts and ordered recovery scenarios
@@ -319,8 +398,8 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - default-drop payload handling
 - forced credential-field removal
 - obvious PII leak detection and replay-fixture validation
-- CLI verification, replay, experiment, recovery, concurrency, adapter, and incident commands
-- real-estate, synthetic Odoo, synthetic incident, and recovery examples
+- CLI verification, replay, experiment, effect projection, recovery, concurrency, adapter, and incident commands
+- real-estate, synthetic Odoo, synthetic incident, effect-map, and recovery examples
 - automated tests and CI across Python 3.11 and 3.12
 
 ## Quick start
@@ -349,13 +428,31 @@ erpchaos chaos run \
   examples/real-estate/property-sale.events.yaml
 ```
 
-Run the full duplicate-payment experiment:
+Project the business effects of the healthy event stream:
+
+```bash
+erpchaos effect project \
+  examples/real-estate/property-sale.events.yaml \
+  examples/real-estate/property-sale.effects.yaml
+```
+
+Run the full duplicate-payment history experiment:
 
 ```bash
 erpchaos experiment run \
   examples/real-estate/property-sale.events.brc.yaml \
   examples/real-estate/duplicate-payment.scenario.yaml \
   examples/real-estate/property-sale.events.yaml
+```
+
+Run the duplicate-payment experiment against net payment effect:
+
+```bash
+erpchaos experiment run \
+  examples/real-estate/payment-effect.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml
 ```
 
 Run a deterministic recovery experiment after the duplicate-payment failure:
@@ -367,6 +464,18 @@ erpchaos recovery run \
   examples/real-estate/property-sale.events.yaml \
   examples/real-estate/payment-recovery.brc.yaml \
   examples/real-estate/payment-recovered.recovery.yaml
+```
+
+Run compensation-aware recovery using history and net business effects together:
+
+```bash
+erpchaos recovery run \
+  examples/real-estate/property-sale.events.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml \
+  examples/real-estate/payment-effect-recovery.brc.yaml \
+  examples/real-estate/payment-recovered.recovery.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml
 ```
 
 Run an ordering experiment where payment is moved ahead of finance approval:
@@ -409,29 +518,28 @@ erpchaos incident sanitize \
 erpchaos incident validate /tmp/property-sale.safe.yaml
 ```
 
-Business-correctness and unrecovered/partially recovered business failures use exit code `1`. Invalid configuration, unsafe incident input, and adapter input use exit code `2`.
+Business-correctness and unrecovered/partially recovered business failures use exit code `1`. Invalid configuration, unsafe incident input, effect-map input, and adapter input use exit code `2`.
 
 ## Architecture direction
 
 The core stays vendor-neutral:
 
 ```text
-                         Business Reliability Contract
-                                  |
-                                  v
-ERP Event Stream -> Chaos -> Replay -> Projection -> Invariant Engine -> BRS
-                     |
-                     +--> known failed transaction
-                                  |
-                                  v
-                         Recovery Scenario
-                                  |
-                         Recovery Checkpoints
-                                  |
-                                  v
-                         Recovery Contract
-                                  |
-                    RRS + TTBC + Regression Check
+                                      Business Reliability Contract
+                                                  |
+                                                  v
+ERP Event Stream -> Chaos -> Replay -> Combined Business State -> Invariant Engine -> BRS
+                                  /             \
+                                 /               \
+                       Event History         Effect Ledger
+                                               |
+                                     optional Effect Map
+
+Known Failed Transaction -> Recovery Events -> Combined Business State
+                                                   |
+                                            Recovery Contract
+                                                   |
+                                     RRS + TTBC + Regression Check
 
 Competing Event Streams -> Deterministic Scheduler -> Exclusivity Engine -> BRS
                                   |
@@ -456,10 +564,10 @@ Vendor-specific integrations must remain behind the adapter boundary. Any future
 Planned work includes:
 
 - richer shared-resource and history-aware invariants
-- compensation-aware projections beyond event counts
+- typed and value-aware business effects with deterministic numeric semantics
 - runtime-authenticated read-only Odoo extraction
 - generic REST and webhook adapters
-- BRC and Recovery Contract schema versioning
+- BRC, Recovery Contract, and Effect Map schema versioning
 - richer PII detection hooks and organization-specific sanitization policies
 - OpenTelemetry correlation
 - machine-readable experiment reports for external CI policy engines
@@ -469,17 +577,19 @@ Planned work includes:
 1. Business correctness is a reliability concern.
 2. Deterministic verification comes before AI assistance.
 3. Infrastructure health does not imply transaction integrity.
-4. Recovery is not complete until explicit business invariants pass.
-5. Reaching consistency temporarily is not the same as stable recovery.
-6. Raw production incident data must stay outside the repository.
-7. Production-derived fixtures must be sanitized and validated before replay.
-8. Vendor-specific ERP behavior belongs behind adapters.
-9. Every new failure mode and recovery path should be reproducible in CI.
-10. Chaos execution must default to safe, non-production environments.
-11. Concurrency schedules must be reproducible rather than timing-dependent.
-12. ERP adapters must fail closed and must not store credentials in fixtures.
-13. Pseudonymization keys must be runtime-only secrets, never repository configuration.
-14. Recovery events are fixtures, never implicit production mutations.
+4. Event history and net business effect are different forms of evidence.
+5. Recovery is not complete until explicit business invariants pass.
+6. Reaching consistency temporarily is not the same as stable recovery.
+7. Raw production incident data must stay outside the repository.
+8. Production-derived fixtures must be sanitized and validated before replay.
+9. Vendor-specific ERP behavior belongs behind adapters.
+10. Every new failure mode and recovery path should be reproducible in CI.
+11. Chaos execution must default to safe, non-production environments.
+12. Concurrency schedules must be reproducible rather than timing-dependent.
+13. ERP adapters must fail closed and must not store credentials in fixtures.
+14. Pseudonymization keys must be runtime-only secrets, never repository configuration.
+15. Recovery events are fixtures, never implicit production mutations.
+16. Effect projections must use explicit deterministic arithmetic; v0.10 uses signed integers only.
 
 ## Status
 
