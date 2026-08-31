@@ -1,0 +1,26 @@
+transaction_id: sale-SEVEN-A-203
+events:
+  - event_id: reservation.created
+    event_type: reservation.created
+    payload:
+      unit: A-203
+  - event_id: finance.approved
+    event_type: finance.approved
+    payload:
+      approved: true
+  - event_id: payment.received
+    event_type: payment.received
+    payload:
+      amount: 500000
+  - event_id: contract.generated
+    event_type: contract.generated
+    payload:
+      contract_no: DEMO-001
+  - event_id: unit.sold
+    event_type: unit.sold
+    payload:
+      unit: A-203
+  - event_id: commission.created
+    event_type: commission.created
+    payload:
+      amount: 25000
