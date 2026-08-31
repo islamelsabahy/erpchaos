@@ -27,7 +27,8 @@ class FaultSpec(BaseModel):
     def validate_parameters(self) -> FaultSpec:
         if self.type != FaultType.duplicate_event and self.repeat != 1:
             raise ValueError("repeat is only valid for duplicate_event")
-        if self.type not in {FaultType.delay_event, FaultType.reorder_event} and self.positions != 1:
+        movable_faults = {FaultType.delay_event, FaultType.reorder_event}
+        if self.type not in movable_faults and self.positions != 1:
             raise ValueError("positions is only valid for delay_event or reorder_event")
         return self
 
