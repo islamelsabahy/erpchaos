@@ -1,0 +1,7 @@
+name: Reverse original payment instead of duplicate
+events:
+  - event_id: payment.reversed
+    event_type: payment.reversed
+    payload:
+      reason: incorrect-compensation-target
+      compensates_event_id: payment.received
