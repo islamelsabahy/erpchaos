@@ -1,0 +1,12 @@
+schema: erpchaos.repair-catalog.v1
+name: Property sale duplicate-payment repair catalog
+max_plan_length: 1
+candidates:
+  - name: reverse-original-payment
+    event_type: payment.reversed
+    payload:
+      compensates_event_id: payment.received
+  - name: reverse-duplicate-payment
+    event_type: payment.reversed
+    payload:
+      compensates_event_id: payment.received#dup1
