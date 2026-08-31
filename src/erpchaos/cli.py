@@ -26,6 +26,7 @@ from erpchaos.incidents import (
     sanitize_event_stream,
     validate_sanitized_event_stream,
 )
+from erpchaos.lineage import EffectLineagePolicy, project_compensation_lineage
 from erpchaos.models import BusinessReliabilityContract
 from erpchaos.recovery import (
     RecoveryContract,
@@ -58,6 +59,10 @@ effect_app = typer.Typer(
     help="Project deterministic net business effects from ordered event streams.",
     no_args_is_help=True,
 )
+lineage_app = typer.Typer(
+    help="Project causal provenance between business effects and compensations.",
+    no_args_is_help=True,
+)
 adapter_app = typer.Typer(
     help="Translate ERP-specific activity into vendor-neutral ERPChaos fixtures.",
     no_args_is_help=True,
@@ -76,6 +81,7 @@ app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
 app.add_typer(recovery_app, name="recovery")
 app.add_typer(effect_app, name="effect")
+app.add_typer(lineage_app, name="lineage")
 app.add_typer(adapter_app, name="adapter")
 app.add_typer(incident_app, name="incident")
 console = Console()
@@ -170,14 +176,23 @@ def experiment_run(
         Path | None,
         typer.Option("--effect-map", help="Optional Business Effect Ledger map YAML."),
     ] = None,
+    lineage_policy: Annotated[
+        Path | None,
+        typer.Option("--lineage-policy", help="Optional compensation lineage policy YAML."),
+    ] = None,
 ) -> None:
-    """Run chaos and evaluate history plus optional net business effects."""
+    """Run chaos and evaluate history plus optional effects and causal lineage."""
     try:
         brc = BusinessReliabilityContract.model_validate(_load_yaml(contract))
         chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
         event_stream = EventStream.model_validate(_load_yaml(stream))
         effects = EffectMap.model_validate(_load_yaml(effect_map)) if effect_map else None
-        result = run_experiment(brc, chaos_scenario, event_stream, effects)
+        lineage = (
+            EffectLineagePolicy.model_validate(_load_yaml(lineage_policy))
+            if lineage_policy
+            else None
+        )
+        result = run_experiment(brc, chaos_scenario, event_stream, effects, lineage)
     except (ValidationError, ValueError) as exc:
         console.print(f"[red]Invalid experiment input:[/red] {exc}")
         raise typer.Exit(code=2) from exc
@@ -207,8 +222,12 @@ def recovery_run(
         Path | None,
         typer.Option("--effect-map", help="Optional Business Effect Ledger map YAML."),
     ] = None,
+    lineage_policy: Annotated[
+        Path | None,
+        typer.Option("--lineage-policy", help="Optional compensation lineage policy YAML."),
+    ] = None,
 ) -> None:
-    """Run chaos, compensation, and optional effect-aware business recovery scoring."""
+    """Run chaos, compensation, effects, lineage, and recovery scoring."""
     try:
         brc = BusinessReliabilityContract.model_validate(_load_yaml(contract))
         chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
@@ -216,6 +235,11 @@ def recovery_run(
         recovery_brc = RecoveryContract.model_validate(_load_yaml(recovery_contract))
         recovery = RecoveryScenario.model_validate(_load_yaml(recovery_scenario))
         effects = EffectMap.model_validate(_load_yaml(effect_map)) if effect_map else None
+        lineage = (
+            EffectLineagePolicy.model_validate(_load_yaml(lineage_policy))
+            if lineage_policy
+            else None
+        )
         result = run_recovery_experiment(
             brc,
             chaos_scenario,
@@ -223,6 +247,7 @@ def recovery_run(
             recovery_brc,
             recovery,
             effects,
+            lineage,
         )
     except (ValidationError, ValueError) as exc:
         console.print(f"[red]Invalid recovery input:[/red] {exc}")
@@ -287,6 +312,52 @@ def effect_project(stream: Path, effect_map: Path) -> None:
             str(value["max_balance"]),
             str(value["contribution_count"]),
             "YES" if value["ever_negative"] else "NO",
+        )
+
+    console.print(table)
+
+
+@lineage_app.command("project")
+def lineage_project(stream: Path, effect_map: Path, lineage_policy: Path) -> None:
+    """Project one-to-one causal provenance between effects and compensations."""
+    try:
+        event_stream = EventStream.model_validate(_load_yaml(stream))
+        effects = EffectMap.model_validate(_load_yaml(effect_map))
+        lineage = EffectLineagePolicy.model_validate(_load_yaml(lineage_policy))
+        state = project_compensation_lineage(event_stream.events, effects, lineage)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid lineage input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table(title=f"ERPChaos Compensation Lineage — {lineage.name}")
+    table.add_column("Effect")
+    table.add_column("Origins", justify="right")
+    table.add_column("Compensations", justify="right")
+    table.add_column("Linked", justify="right")
+    table.add_column("Orphans", justify="right")
+    table.add_column("Duplicates", justify="right")
+    table.add_column("Valid")
+    table.add_column("Active Origins")
+    table.add_column("Compensated Origins")
+
+    projected = state["lineage"]
+    assert isinstance(projected, dict)
+    for effect_name, value in projected.items():
+        assert isinstance(value, dict)
+        active = value["active_origin_ids"]
+        compensated = value["compensated_origin_ids"]
+        assert isinstance(active, list)
+        assert isinstance(compensated, list)
+        table.add_row(
+            effect_name,
+            str(value["origin_count"]),
+            str(value["compensation_count"]),
+            str(value["linked_compensation_count"]),
+            str(value["orphan_compensation_count"]),
+            str(value["duplicate_compensation_count"]),
+            "YES" if value["valid"] else "NO",
+            ", ".join(str(item) for item in active) or "none",
+            ", ".join(str(item) for item in compensated) or "none",
         )
 
     console.print(table)
