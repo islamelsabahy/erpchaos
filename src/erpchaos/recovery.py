@@ -73,7 +73,7 @@ def run_recovery_experiment(
     recovery_contract: RecoveryContract,
     recovery_scenario: RecoveryScenario,
 ) -> RecoveryResult:
-    """Apply chaos, then deterministic recovery events until consistency is restored or exhausted."""
+    """Apply chaos and deterministic recovery events until recovery is exhausted."""
 
     chaos_result = run_experiment(business_contract, chaos_scenario, stream)
     if chaos_result.passed:
