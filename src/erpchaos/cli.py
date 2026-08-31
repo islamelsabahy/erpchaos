@@ -9,6 +9,11 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
+from erpchaos.adapters.odoo import (
+    OdooExportAdapter,
+    OdooExportFixture,
+    export_event_stream_document,
+)
 from erpchaos.concurrency import ConcurrencyScenario, run_concurrency
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
@@ -33,9 +38,19 @@ concurrency_app = typer.Typer(
     help="Run deterministic competing-transaction experiments.",
     no_args_is_help=True,
 )
+adapter_app = typer.Typer(
+    help="Translate ERP-specific activity into vendor-neutral ERPChaos fixtures.",
+    no_args_is_help=True,
+)
+odoo_app = typer.Typer(
+    help="Translate safe read-only Odoo exports.",
+    no_args_is_help=True,
+)
+adapter_app.add_typer(odoo_app, name="odoo")
 app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
+app.add_typer(adapter_app, name="adapter")
 console = Console()
 
 
@@ -182,6 +197,40 @@ def concurrency_run(scenario: Path) -> None:
 
     if not result.passed:
         raise typer.Exit(code=1)
+
+
+@odoo_app.command("translate")
+def odoo_translate(fixture: Path, output: Path | None = None) -> None:
+    """Translate a sanitized read-only Odoo export into ERPChaos event streams."""
+    try:
+        odoo_fixture = OdooExportFixture.model_validate(_load_yaml(fixture))
+        streams = OdooExportAdapter(odoo_fixture).translate()
+        document = export_event_stream_document(streams)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid Odoo adapter input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table(title="ERPChaos Odoo Read Adapter")
+    table.add_column("Transaction")
+    table.add_column("Events", justify="right")
+
+    for stream in streams:
+        table.add_row(stream.transaction_id, str(len(stream.events)))
+
+    console.print(table)
+    console.print(
+        f"Environment: [bold]{odoo_fixture.config.environment.value}[/bold] | "
+        "Mode: [bold]READ ONLY[/bold]"
+    )
+    console.print(f"Translated streams: [bold]{len(streams)}[/bold]")
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            yaml.safe_dump(document, sort_keys=False),
+            encoding="utf-8",
+        )
+        console.print(f"Sanitized export: [bold]{output}[/bold]")
 
 
 if __name__ == "__main__":
