@@ -6,6 +6,12 @@ ERPChaos is an open-source experiment in **Business Transaction Chaos Engineerin
 
 ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, net business effects as deterministic ledgers, and recovery behavior as something that can be measured and gated in CI.
 
+## Maintainer
+
+Maintained by [Islam El-sabahy](https://github.com/islamelsabahy), an IT Manager based in Cairo, Egypt, focused on Odoo/ERP implementation and digital transformation for real estate operations. ERPChaos grew out of a simple observation from running ERP systems in production: infrastructure monitoring says everything is fine while a duplicated payment or an out-of-order approval quietly corrupts a business transaction. This project treats that gap as an engineering problem, not a data-cleanup problem.
+
+More practical ERP/IT tooling: [odoo-implementation-playbook](https://github.com/islamelsabahy/odoo-implementation-playbook), [it-manager-toolkit](https://github.com/islamelsabahy/it-manager-toolkit), and other real-estate AI/ops projects on the [profile](https://github.com/islamelsabahy?tab=repositories).
+
 ## Why ERPChaos?
 
 Traditional chaos engineering asks whether infrastructure survives failure.
