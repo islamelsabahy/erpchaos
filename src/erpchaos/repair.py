@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import permutations
+from math import perm
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -36,13 +37,24 @@ class RepairCatalog(BaseModel):
     schema_version: Literal["erpchaos.repair-catalog.v1"] = Field(alias="schema")
     name: str = Field(min_length=1)
     max_plan_length: int = Field(ge=1, le=8)
+    max_evaluations: int = Field(default=5000, ge=1, le=100000)
     candidates: list[RepairCandidate] = Field(min_length=1, max_length=12)
 
     @model_validator(mode="after")
-    def validate_unique_candidates(self) -> RepairCatalog:
+    def validate_catalog(self) -> RepairCatalog:
         names = [candidate.name for candidate in self.candidates]
         if len(names) != len(set(names)):
             raise ValueError("repair candidate names must be unique")
+
+        max_length = min(self.max_plan_length, len(self.candidates))
+        evaluation_count = sum(
+            perm(len(self.candidates), length) for length in range(1, max_length + 1)
+        )
+        if evaluation_count > self.max_evaluations:
+            raise ValueError(
+                "repair search space exceeds max_evaluations: "
+                f"{evaluation_count} > {self.max_evaluations}"
+            )
         return self
 
 
