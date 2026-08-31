@@ -60,3 +60,17 @@ jobs:
             echo "Expected ordering invariant failure exit code 1, got $status"
             exit 1
           fi
+      - name: Smoke test safe concurrency
+        run: erpchaos concurrency run examples/real-estate/single-winner.concurrent.yaml
+      - name: Smoke test double-reservation detection
+        shell: bash
+        run: |
+          set +e
+          erpchaos concurrency run \
+            examples/real-estate/double-reservation.concurrent.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected concurrency exclusivity failure exit code 1, got $status"
+            exit 1
+          fi

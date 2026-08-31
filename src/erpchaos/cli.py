@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
+from erpchaos.concurrency import ConcurrencyScenario, run_concurrency
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
 from erpchaos.experiment import run_experiment
@@ -16,7 +17,10 @@ from erpchaos.faults import ChaosScenario
 from erpchaos.models import BusinessReliabilityContract
 from erpchaos.replay import replay
 
-app = typer.Typer(help="Chaos engineering for ERP and business transactions.", no_args_is_help=True)
+app = typer.Typer(
+    help="Chaos engineering for ERP and business transactions.",
+    no_args_is_help=True,
+)
 chaos_app = typer.Typer(
     help="Run deterministic business transaction chaos scenarios.",
     no_args_is_help=True,
@@ -25,8 +29,13 @@ experiment_app = typer.Typer(
     help="Run chaos experiments and evaluate Business Reliability Contracts.",
     no_args_is_help=True,
 )
+concurrency_app = typer.Typer(
+    help="Run deterministic competing-transaction experiments.",
+    no_args_is_help=True,
+)
 app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
+app.add_typer(concurrency_app, name="concurrency")
 console = Console()
 
 
@@ -131,6 +140,45 @@ def experiment_run(contract: Path, scenario: Path, stream: Path) -> None:
         f"{len(result.replay.mutated_events)}"
     )
     _render_invariants(f"Post-chaos BRC — {brc.name}", result.invariant_results)
+
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
+@concurrency_app.command("run")
+def concurrency_run(scenario: Path) -> None:
+    """Run a deterministic race between transactions sharing one resource."""
+    try:
+        concurrency_scenario = ConcurrencyScenario.model_validate(_load_yaml(scenario))
+        result = run_concurrency(concurrency_scenario)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid concurrency input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table(title=f"ERPChaos Concurrency — {result.scenario}")
+    table.add_column("#", justify="right")
+    table.add_column("Transaction")
+    table.add_column("Event ID")
+    table.add_column("Event Type")
+
+    for item in result.timeline:
+        table.add_row(
+            str(item.position),
+            item.transaction_id,
+            item.event.event_id,
+            item.event.event_type,
+        )
+
+    console.print(table)
+    winners = ", ".join(result.successful_transactions) or "none"
+    race_status = "CLEAR" if result.passed else "DETECTED"
+    console.print(f"Resource: [bold]{result.resource_key}[/bold]")
+    console.print(
+        f"Successful transactions: {len(result.successful_transactions)} "
+        f"(allowed: {result.max_successes}) | {winners}"
+    )
+    console.print(f"Business Race Condition: [bold]{race_status}[/bold]")
+    console.print(f"Business Reliability Score: [bold]{result.score}/100[/bold]")
 
     if not result.passed:
         raise typer.Exit(code=1)
