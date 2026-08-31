@@ -1,0 +1,14 @@
+transaction_id: sale-lineage-demo
+events:
+  - event_id: payment.received
+    event_type: payment.received
+    payload:
+      source: original-callback
+  - event_id: payment.received#dup1
+    event_type: payment.received
+    payload:
+      source: duplicate-callback
+  - event_id: payment.reversed
+    event_type: payment.reversed
+    payload:
+      compensates_event_id: payment.received#dup1

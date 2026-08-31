@@ -5,6 +5,7 @@ from typing import Any
 
 from erpchaos.effects import EffectMap, project_effect_ledger
 from erpchaos.events import BusinessEvent
+from erpchaos.lineage import EffectLineagePolicy, project_compensation_lineage
 
 
 def _event_key(event_type: str) -> str:
@@ -51,10 +52,21 @@ def project_event_history(events: list[BusinessEvent]) -> dict[str, Any]:
 def project_business_state(
     events: list[BusinessEvent],
     effect_map: EffectMap | None = None,
+    lineage_policy: EffectLineagePolicy | None = None,
 ) -> dict[str, Any]:
-    """Project event history and, when configured, deterministic business effects."""
+    """Project history plus optional net effects and compensation lineage."""
+
+    if lineage_policy is not None and effect_map is None:
+        raise ValueError("lineage projection requires an effect map")
 
     state = project_event_history(events)
     if effect_map is not None:
         state["effects"] = project_effect_ledger(events, effect_map)["effects"]
+    if lineage_policy is not None:
+        assert effect_map is not None
+        state["lineage"] = project_compensation_lineage(
+            events,
+            effect_map,
+            lineage_policy,
+        )["lineage"]
     return state

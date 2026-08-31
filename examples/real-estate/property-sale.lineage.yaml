@@ -1,0 +1,7 @@
+schema: erpchaos.effect-lineage.v1
+name: Property sale compensation lineage
+effects:
+  payment:
+    compensation_events:
+      payment.reversed:
+        target_field: compensates_event_id

@@ -11,6 +11,7 @@ from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import BusinessEvent, EventStream
 from erpchaos.experiment import ExperimentResult, run_experiment
 from erpchaos.faults import ChaosScenario
+from erpchaos.lineage import EffectLineagePolicy
 from erpchaos.models import BusinessReliabilityContract
 from erpchaos.projection import project_business_state
 
@@ -74,10 +75,17 @@ def run_recovery_experiment(
     recovery_contract: RecoveryContract,
     recovery_scenario: RecoveryScenario,
     effect_map: EffectMap | None = None,
+    lineage_policy: EffectLineagePolicy | None = None,
 ) -> RecoveryResult:
     """Apply chaos and deterministic recovery events until recovery is exhausted."""
 
-    chaos_result = run_experiment(business_contract, chaos_scenario, stream, effect_map)
+    chaos_result = run_experiment(
+        business_contract,
+        chaos_scenario,
+        stream,
+        effect_map,
+        lineage_policy,
+    )
     if chaos_result.passed:
         raise ValueError("recovery experiments require chaos to fail the business contract first")
 
@@ -92,7 +100,7 @@ def run_recovery_experiment(
 
     checkpoints: list[RecoveryCheckpoint] = []
     ttbc_steps: int | None = None
-    final_state = project_business_state(timeline, effect_map)
+    final_state = project_business_state(timeline, effect_map, lineage_policy)
     final_results = verify_contract(recovery_contract, final_state)
     final_score = reliability_score(final_results)
 
@@ -101,7 +109,7 @@ def run_recovery_experiment(
 
     for step, event in enumerate(recovery_scenario.events, start=1):
         timeline.append(event)
-        final_state = project_business_state(timeline, effect_map)
+        final_state = project_business_state(timeline, effect_map, lineage_policy)
         final_results = verify_contract(recovery_contract, final_state)
         final_score = reliability_score(final_results)
         passed = all(result.passed for result in final_results)
