@@ -7,6 +7,7 @@ from erpchaos.effects import EffectMap
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
 from erpchaos.faults import ChaosScenario
+from erpchaos.lineage import EffectLineagePolicy
 from erpchaos.models import BusinessReliabilityContract
 from erpchaos.projection import project_business_state
 from erpchaos.replay import ReplayResult, replay
@@ -29,11 +30,16 @@ def run_experiment(
     scenario: ChaosScenario,
     stream: EventStream,
     effect_map: EffectMap | None = None,
+    lineage_policy: EffectLineagePolicy | None = None,
 ) -> ExperimentResult:
     """Replay chaos, project business state, then evaluate the BRC."""
 
     replay_result = replay(stream, scenario)
-    projected_state = project_business_state(replay_result.mutated_events, effect_map)
+    projected_state = project_business_state(
+        replay_result.mutated_events,
+        effect_map,
+        lineage_policy,
+    )
     invariant_results = verify_contract(contract, projected_state)
 
     return ExperimentResult(
