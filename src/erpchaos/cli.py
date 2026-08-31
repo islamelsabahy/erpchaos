@@ -26,6 +26,11 @@ from erpchaos.incidents import (
     validate_sanitized_event_stream,
 )
 from erpchaos.models import BusinessReliabilityContract
+from erpchaos.recovery import (
+    RecoveryContract,
+    RecoveryScenario,
+    run_recovery_experiment,
+)
 from erpchaos.replay import replay
 
 app = typer.Typer(
@@ -44,6 +49,10 @@ concurrency_app = typer.Typer(
     help="Run deterministic competing-transaction experiments.",
     no_args_is_help=True,
 )
+recovery_app = typer.Typer(
+    help="Run deterministic business recovery experiments after chaos-induced failures.",
+    no_args_is_help=True,
+)
 adapter_app = typer.Typer(
     help="Translate ERP-specific activity into vendor-neutral ERPChaos fixtures.",
     no_args_is_help=True,
@@ -60,6 +69,7 @@ adapter_app.add_typer(odoo_app, name="odoo")
 app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
+app.add_typer(recovery_app, name="recovery")
 app.add_typer(adapter_app, name="adapter")
 app.add_typer(incident_app, name="incident")
 console = Console()
@@ -166,6 +176,61 @@ def experiment_run(contract: Path, scenario: Path, stream: Path) -> None:
         f"{len(result.replay.mutated_events)}"
     )
     _render_invariants(f"Post-chaos BRC — {brc.name}", result.invariant_results)
+
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
+@recovery_app.command("run")
+def recovery_run(
+    contract: Path,
+    scenario: Path,
+    stream: Path,
+    recovery_contract: Path,
+    recovery_scenario: Path,
+) -> None:
+    """Run chaos, apply compensating events, and score business recovery deterministically."""
+    try:
+        brc = BusinessReliabilityContract.model_validate(_load_yaml(contract))
+        chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
+        event_stream = EventStream.model_validate(_load_yaml(stream))
+        recovery_brc = RecoveryContract.model_validate(_load_yaml(recovery_contract))
+        recovery = RecoveryScenario.model_validate(_load_yaml(recovery_scenario))
+        result = run_recovery_experiment(
+            brc,
+            chaos_scenario,
+            event_stream,
+            recovery_brc,
+            recovery,
+        )
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid recovery input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table(title=f"ERPChaos Recovery — {result.recovery_scenario}")
+    table.add_column("Step", justify="right")
+    table.add_column("Event ID")
+    table.add_column("Event Type")
+    table.add_column("RRS", justify="right")
+    table.add_column("Consistent")
+    for checkpoint in result.checkpoints:
+        table.add_row(
+            str(checkpoint.step),
+            checkpoint.event_id,
+            checkpoint.event_type,
+            str(checkpoint.score),
+            "YES" if checkpoint.passed else "NO",
+        )
+    console.print(table)
+    _render_invariants(f"Recovery Contract — {recovery_brc.name}", result.invariant_results)
+    ttbc = "not reached" if result.ttbc_steps is None else str(result.ttbc_steps)
+    console.print(f"Recovery Status: [bold]{result.status.value}[/bold]")
+    console.print(f"Recovery Reliability Score: [bold]{result.score}/100[/bold]")
+    console.print(f"Time to Business Consistency: [bold]{ttbc} event step(s)[/bold]")
+    console.print(
+        "Regressed after recovery: "
+        f"[bold]{'YES' if result.regressed_after_recovery else 'NO'}[/bold]"
+    )
 
     if not result.passed:
         raise typer.Exit(code=1)
