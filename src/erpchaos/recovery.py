@@ -58,6 +58,7 @@ class RecoveryResult:
     score: int
     status: RecoveryStatus
     ttbc_steps: int | None
+    regressed_after_recovery: bool
     checkpoints: list[RecoveryCheckpoint]
 
     @property
@@ -115,6 +116,7 @@ def run_recovery_experiment(
             ttbc_steps = step
 
     status = _classify_recovery(final_results)
+    regressed_after_recovery = ttbc_steps is not None and status is not RecoveryStatus.recovered
     return RecoveryResult(
         chaos=chaos_result,
         recovery_scenario=recovery_scenario.name,
@@ -123,6 +125,7 @@ def run_recovery_experiment(
         score=final_score,
         status=status,
         ttbc_steps=ttbc_steps,
+        regressed_after_recovery=regressed_after_recovery,
         checkpoints=checkpoints,
     )
 
