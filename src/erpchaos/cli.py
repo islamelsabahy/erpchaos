@@ -214,9 +214,13 @@ def concurrency_run(scenario: Path) -> None:
 def incident_sanitize(
     stream: Path,
     policy: Path,
-    output: Path = typer.Option(..., "--output", "-o"),
+    output: Path | None = None,
 ) -> None:
     """Create a replay-safe incident fixture using a runtime pseudonymization key."""
+    if output is None:
+        console.print("[red]Invalid incident input:[/red] --output is required")
+        raise typer.Exit(code=2)
+
     pseudonym_key = os.environ.get("ERPCHAOS_PSEUDONYM_KEY", "")
     if not pseudonym_key:
         console.print(
