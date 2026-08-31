@@ -1,0 +1,32 @@
+name: Property Sale Reliability Contract
+version: "1"
+transaction: property-sale
+description: Protect critical invariants across reservation, finance, payment, sale, and commission.
+invariants:
+  - name: unit-sold-once
+    description: A completed transaction must produce exactly one sold unit transition.
+    path: unit.sold_transitions
+    operator: equals
+    expected: 1
+    severity: critical
+
+  - name: payment-idempotency
+    description: The same business payment must not be posted more than once.
+    path: payment.posted_records
+    operator: equals
+    expected: 1
+    severity: critical
+
+  - name: commission-idempotency
+    description: Duplicate events must not duplicate commission records.
+    path: commission.records
+    operator: equals
+    expected: 1
+    severity: high
+
+  - name: finance-approved-before-sale
+    description: Sale completion requires finance approval.
+    path: finance.approved
+    operator: equals
+    expected: true
+    severity: critical
