@@ -159,6 +159,59 @@ jobs:
             echo "Expected exhausted repair search exit code 1, got $status"
             exit 1
           fi
+      - name: Generate deterministic repair evidence
+        run: |
+          erpchaos repair synthesize \
+            examples/real-estate/payment-effect.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-repair.catalog.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml \
+            --evidence /tmp/repair-evidence.json
+          erpchaos evidence verify /tmp/repair-evidence.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/repair-evidence.json').read_text(encoding='utf-8'))
+          assert payload['schema'] == 'erpchaos.evidence.v1'
+          assert payload['tool_version'] == '0.13.0a0'
+          assert payload['mode'] == 'repair'
+          assert payload['status'] == 'REPAIR_FOUND'
+          assert payload['result']['score'] == 100
+          assert payload['result']['searched_plan_count'] == 2
+          assert payload['result']['selected_candidate_names'] == ['reverse-duplicate-payment']
+          assert payload['evidence_digest'].startswith('sha256:')
+          PY
+      - name: Smoke test evidence tamper rejection
+        shell: bash
+        run: |
+          cp /tmp/repair-evidence.json /tmp/repair-evidence-tampered.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('/tmp/repair-evidence-tampered.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          payload['result']['score'] = 0
+          path.write_text(json.dumps(payload), encoding='utf-8')
+          PY
+          set +e
+          erpchaos evidence verify /tmp/repair-evidence-tampered.json
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected tampered evidence exit code 1, got $status"
+            exit 1
+          fi
+      - name: Upload deterministic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-evidence-${{ matrix.python-version }}
+          path: /tmp/repair-evidence.json
+          if-no-files-found: error
       - name: Smoke test recovery regression detection
         shell: bash
         run: |
@@ -245,9 +298,27 @@ jobs:
           EventStream.model_validate(yaml.safe_load(text))
           PY
 
+  evidence-consistency:
+    name: evidence byte consistency
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download evidence artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: reliability-evidence-*
+          path: evidence
+          merge-multiple: false
+      - name: Compare Python 3.11 and 3.12 evidence bytes
+        run: |
+          cmp \
+            evidence/reliability-evidence-3.11/repair-evidence.json \
+            evidence/reliability-evidence-3.12/repair-evidence.json
+          sha256sum evidence/reliability-evidence-*/repair-evidence.json
+
   action-smoke:
     name: composite action contract
-    needs: test
+    needs: [test, evidence-consistency]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
