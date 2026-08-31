@@ -247,7 +247,7 @@ def _pseudonym(
 ) -> str:
     digest = hmac.new(
         pseudonym_key.encode("utf-8"),
-        f"{namespace}:{value}".encode("utf-8"),
+        f"{namespace}:{value}".encode(),
         sha256,
     ).hexdigest()[:20]
     return f"{prefix}-{namespace.split(':', maxsplit=1)[0]}-{digest}"
