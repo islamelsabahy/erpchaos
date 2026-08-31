@@ -78,7 +78,7 @@ jobs:
         run: |
           erpchaos adapter odoo translate \
             examples/odoo/property-sale.export.yaml \
-            /tmp/odoo-event-streams.yaml
+            --output /tmp/odoo-event-streams.yaml
           python - <<'PY'
           from pathlib import Path
           import yaml
