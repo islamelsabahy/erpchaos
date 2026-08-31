@@ -1,0 +1,78 @@
+name: Package Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: reproducible package build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install "build==1.6.0" "twine==7.0.0"
+
+      - name: Set reproducible build epoch
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Build twice
+        run: |
+          python -m build --outdir dist-a
+          python -m build --outdir dist-b
+
+      - name: Validate package metadata
+        run: |
+          python -m twine check dist-a/*
+          python -m twine check dist-b/*
+
+      - name: Prove byte reproducibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          for artifact in dist-a/*; do
+            name="$(basename "$artifact")"
+            cmp "$artifact" "dist-b/$name"
+          done
+          sha256sum dist-a/*
+
+      - name: Install built wheel in a clean environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/erpchaos-package-test
+          /tmp/erpchaos-package-test/bin/python -m pip install dist-a/*.whl
+          /tmp/erpchaos-package-test/bin/erpchaos --help >/dev/null
+          /tmp/erpchaos-package-test/bin/python - <<'PY'
+          import erpchaos
+          assert erpchaos.__version__ == "0.14.0a0"
+          PY
+
+      - name: Prepare build artifact
+        run: |
+          mkdir -p dist
+          cp dist-a/* dist/
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: erpchaos-package
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
