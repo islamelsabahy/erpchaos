@@ -80,6 +80,12 @@ jobs:
             echo "Expected effective-payment failure exit code 1, got $status"
             exit 1
           fi
+      - name: Smoke test causal compensation lineage
+        run: |
+          erpchaos lineage project \
+            examples/real-estate/payment-lineage.events.yaml \
+            examples/real-estate/property-sale.effects.yaml \
+            examples/real-estate/property-sale.lineage.yaml
       - name: Smoke test successful business recovery
         run: |
           erpchaos recovery run \
@@ -97,6 +103,34 @@ jobs:
             examples/real-estate/payment-effect-recovery.brc.yaml \
             examples/real-estate/payment-recovered.recovery.yaml \
             --effect-map examples/real-estate/property-sale.effects.yaml
+      - name: Smoke test causal duplicate-payment recovery
+        run: |
+          erpchaos recovery run \
+            examples/real-estate/property-sale.events.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-lineage-correct.recovery.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml
+      - name: Smoke test wrong causal compensation target
+        shell: bash
+        run: |
+          set +e
+          erpchaos recovery run \
+            examples/real-estate/property-sale.events.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-lineage-wrong.recovery.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected wrong-target causal recovery exit code 1, got $status"
+            exit 1
+          fi
       - name: Smoke test recovery regression detection
         shell: bash
         run: |
