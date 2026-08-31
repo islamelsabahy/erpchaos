@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.effects import EffectMap
-from erpchaos.evidence import build_evidence, write_evidence
+from erpchaos.evidence import evidence_for_repair, write_evidence
 from erpchaos.events import EventStream
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
@@ -125,18 +125,7 @@ def repair_synthesize(
             input_paths["effect_map"] = effect_map
         if lineage_policy is not None:
             input_paths["lineage_policy"] = lineage_policy
-        evidence = build_evidence(
-            mode="repair",
-            status=result.status.value,
-            input_paths=input_paths,
-            result={
-                "score": result.score,
-                "searched_plan_count": result.searched_plan_count,
-                "selected_candidate_names": result.selected_candidate_names,
-                "plan_length": result.plan_length,
-            },
-            invariants=result.invariant_results,
-        )
+        evidence = evidence_for_repair(input_paths, result)
         write_evidence(evidence_output, evidence)
         console.print(f"Evidence: [bold]{evidence_output}[/bold]")
 
