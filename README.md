@@ -2,20 +2,21 @@
 
 > **Your infrastructure can be green while your business is broken.**
 
-ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, competing transactions, compensation errors, and failed recovery paths that can leave technically healthy systems in financially or operationally invalid states.
+ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, competing transactions, compensation errors, wrong-target reversals, and failed recovery paths that can leave technically healthy systems in financially or operationally invalid states.
 
-ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, net business effects as deterministic ledgers, and recovery behavior as something that can be measured and gated in CI.
+ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, net business effects as deterministic ledgers, compensation provenance as causal evidence, and recovery behavior as something that can be measured and gated in CI.
 
 ## Why ERPChaos?
 
 Traditional chaos engineering asks whether infrastructure survives failure.
 
-ERPChaos asks four different questions:
+ERPChaos asks five different questions:
 
 1. **Did the business transaction remain correct when failure happened?**
 2. **What effective business state remains after retries, duplicates, and compensations?**
-3. **If it broke, did the compensating business flow actually recover it?**
-4. **Did the recovered state stay consistent, or did recovery regress later?**
+3. **Did each compensation reverse the correct originating business effect?**
+4. **If the transaction broke, did the compensating business flow actually recover it?**
+5. **Did the recovered state stay consistent, or did recovery regress later?**
 
 Examples:
 
@@ -24,9 +25,9 @@ Examples:
 - Can payment happen before finance approval while every event still exists?
 - Can a sold unit accidentally return to available state?
 - Can out-of-order events corrupt a workflow while every service still reports healthy?
-- Can a real incident be converted into a safe deterministic regression fixture without committing PII or credentials?
-- Can a duplicate payment be compensated correctly, and can ERPChaos prove the recovery stays stable?
-- Can two payment callbacks plus one reversal be verified as **one effective payment** instead of merely three historical events?
+- Can a real incident become a safe deterministic regression fixture without committing PII or credentials?
+- Can two payment callbacks plus one reversal be verified as **one effective payment**?
+- Can ERPChaos prove the reversal targeted the duplicate payment instead of the legitimate original payment?
 
 ## Core concepts
 
@@ -142,27 +143,86 @@ The transaction therefore contains three relevant historical events but ends wit
 
 The ledger also preserves trajectory information. A reversal before any receipt can end at balance `0` later while still exposing `min_balance: -1` and `ever_negative: true`, allowing a BRC to detect an orphan compensation that a final-balance-only check would miss.
 
-Project a ledger directly:
-
 ```bash
 erpchaos effect project \
   examples/real-estate/property-sale.events.yaml \
   examples/real-estate/property-sale.effects.yaml
 ```
 
-Run an effect-aware chaos experiment:
+See [`docs/BUSINESS_EFFECT_LEDGER.md`](docs/BUSINESS_EFFECT_LEDGER.md).
 
-```bash
-erpchaos experiment run \
-  examples/real-estate/payment-effect.brc.yaml \
-  examples/real-estate/duplicate-payment.scenario.yaml \
-  examples/real-estate/property-sale.events.yaml \
-  --effect-map examples/real-estate/property-sale.effects.yaml
+### Causal Compensation Lineage
+
+A correct net balance still does not prove that compensation targeted the correct contribution.
+
+Suppose chaos duplicates a payment callback:
+
+```text
+payment.received          # legitimate original
+payment.received#dup1     # duplicate callback
 ```
 
-The `--effect-map` option is optional, so existing history-only experiment contracts remain compatible.
+After one reversal, both of these outcomes have payment balance `1`:
 
-See [`docs/BUSINESS_EFFECT_LEDGER.md`](docs/BUSINESS_EFFECT_LEDGER.md) for effect semantics, over-compensation, orphan reversals, and contract examples.
+```text
+Correct target                     Wrong target
+--------------                     ------------
+original       ACTIVE              original       COMPENSATED
+duplicate      COMPENSATED         duplicate      ACTIVE
+```
+
+ERPChaos v0.11 adds deterministic one-to-one provenance so contracts can distinguish them.
+
+A lineage policy declares how compensating event types reference their origin:
+
+```yaml
+schema: erpchaos.effect-lineage.v1
+name: Property sale compensation lineage
+effects:
+  payment:
+    compensation_events:
+      payment.reversed:
+        target_field: compensates_event_id
+```
+
+A correct recovery event can explicitly target the duplicated callback:
+
+```yaml
+- event_id: payment.reversed
+  event_type: payment.reversed
+  payload:
+    compensates_event_id: payment.received#dup1
+```
+
+The projected state includes structural errors and exact provenance:
+
+```yaml
+lineage:
+  payment:
+    origin_count: 2
+    compensation_count: 1
+    linked_compensation_count: 1
+    orphan_compensation_count: 0
+    duplicate_compensation_count: 0
+    active_origin_ids:
+      - payment.received
+    compensated_origin_ids:
+      - payment.received#dup1
+    valid: true
+```
+
+Lineage detects missing, unknown, future, non-origin, and duplicate compensation references. A structurally valid target can still be business-wrong; the contract verifies that the **correct origin IDs** remain active or compensated.
+
+Project causal lineage directly:
+
+```bash
+erpchaos lineage project \
+  examples/real-estate/payment-lineage.events.yaml \
+  examples/real-estate/property-sale.effects.yaml \
+  examples/real-estate/property-sale.lineage.yaml
+```
+
+See [`docs/COMPENSATION_LINEAGE.md`](docs/COMPENSATION_LINEAGE.md) for the full causal model and its one-to-one safety boundary.
 
 ### Business Recovery Engineering
 
@@ -196,21 +256,22 @@ Recovery results include:
 - **Recovery status** — `RECOVERED`, `PARTIALLY_RECOVERED`, or `UNRECOVERED`.
 - **Recovery regression detection** — identifies a transaction that reached consistency and then became inconsistent again because of later compensation.
 
-History and business effects can be evaluated together during recovery:
+History, net effects, and causal provenance can be evaluated together:
 
 ```bash
 erpchaos recovery run \
   examples/real-estate/property-sale.events.brc.yaml \
   examples/real-estate/duplicate-payment.scenario.yaml \
   examples/real-estate/property-sale.events.yaml \
-  examples/real-estate/payment-effect-recovery.brc.yaml \
-  examples/real-estate/payment-recovered.recovery.yaml \
-  --effect-map examples/real-estate/property-sale.effects.yaml
+  examples/real-estate/payment-lineage-recovery.brc.yaml \
+  examples/real-estate/payment-lineage-correct.recovery.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml \
+  --lineage-policy examples/real-estate/property-sale.lineage.yaml
 ```
 
-This can prove that compensation occurred in the correct order **and** restored the expected net business effect.
+This can prove that compensation restored the expected net effect **and** reversed the intended origin contribution.
 
-See [`docs/RECOVERY_ENGINEERING.md`](docs/RECOVERY_ENGINEERING.md) for the full recovery model and CI contract.
+See [`docs/RECOVERY_ENGINEERING.md`](docs/RECOVERY_ENGINEERING.md).
 
 ### Deterministic concurrency
 
@@ -287,10 +348,10 @@ The repository raw incident example is synthetic only. Real raw incident capture
 
 ### GitHub Action
 
-ERPChaos can also be consumed directly as a composite GitHub Action. A known-good immutable reference from the v0.9 mainline is:
+ERPChaos can also be consumed directly as a composite GitHub Action. A known-good immutable reference from the v0.10 mainline is:
 
 ```yaml
-- uses: islamelsabahy/erpchaos@9d5297ca95ac39c19ed1a6707043d61e943bf2f7
+- uses: islamelsabahy/erpchaos@2fdbe50c5a714d8d5ea9a097549be9e864243f17
   with:
     mode: experiment
     contract: reliability/property-sale.events.brc.yaml
@@ -302,36 +363,33 @@ The Action preserves the CLI exit-code contract and publishes `status` plus `exi
 
 ## Experiment shapes
 
-A standard chaos experiment closes the single-transaction reliability loop:
+A business state can now combine three deterministic evidence layers:
 
 ```text
-                            +-> Event History ----+
-Event Stream -> Chaos -> Replay                  +-> Combined Business State -> BRC -> BRS
-                            +-> Effect Ledger ----+
-                                  optional
+                                 +-> Event History ---------+
+                                 |                          |
+Event Stream -> Chaos -> Replay +-> Business Effect Ledger +-> Combined State -> BRC -> BRS
+                                 |                          |
+                                 +-> Causal Lineage --------+
+                                      optional, requires BEL
 ```
 
-A compensation-aware recovery experiment extends the same state projection after every recovery step:
+A causal recovery experiment reevaluates the combined state after every recovery event:
 
 ```text
-Event Stream -> Chaos -> Failed Business State
-                         |
-                         v
-                  Recovery Event 1
-                         |
-              +----------+----------+
-              |                     |
-        Event History         Effect Ledger
-              |                     |
-              +----------+----------+
-                         |
-                 Recovery Contract -> RRS
-                         |
-                  Recovery Event N
-                         |
-               TTBC + Final Status
-                         |
-               Regression Detection
+Known Business Failure
+        |
+        v
+Recovery Event
+        |
+        +--> History
+        +--> Effect Ledger
+        +--> Compensation Lineage
+        |
+        v
+Combined Business State
+        |
+Recovery Contract -> RRS -> TTBC -> Regression Detection
 ```
 
 A concurrency experiment evaluates a shared-resource race:
@@ -353,16 +411,16 @@ Local Raw Incident -> Sanitization Policy -> HMAC Pseudonyms -> Leak Validation
                                                                v
                                                      Safe EventStream Fixture
                                                                |
-                                             Replay / Effects / Chaos / Recovery
+                                    History / Effects / Lineage / Chaos / Recovery
 ```
 
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, history projection, effect-ledger projection, replay, recovery evaluation, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, history projection, effect-ledger projection, causal lineage, replay, recovery evaluation, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.10.0-alpha` development provides:
+`v0.11.0-alpha` development provides:
 
 - Business Reliability Contract model
 - deterministic invariant evaluator
@@ -375,8 +433,12 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - Business Effect Ledger effect maps
 - deterministic signed-integer effect projection
 - effect `balance`, `min_balance`, `max_balance`, `contribution_count`, and `ever_negative`
-- combined history + business-effect contract state
-- effect-aware chaos and recovery experiments
+- Causal Compensation Lineage policies
+- one-to-one origin/compensation provenance
+- missing, unknown, future, non-origin, and duplicate compensation detection
+- active and compensated origin ID projection
+- combined history + effects + lineage contract state
+- effect-aware and lineage-aware chaos/recovery engines
 - end-to-end post-chaos BRC evaluation
 - deterministic Business Recovery Engineering
 - Recovery Contracts and ordered recovery scenarios
@@ -398,8 +460,8 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - default-drop payload handling
 - forced credential-field removal
 - obvious PII leak detection and replay-fixture validation
-- CLI verification, replay, experiment, effect projection, recovery, concurrency, adapter, and incident commands
-- real-estate, synthetic Odoo, synthetic incident, effect-map, and recovery examples
+- CLI verification, replay, experiment, effect projection, lineage projection, recovery, concurrency, adapter, and incident commands
+- real-estate, synthetic Odoo, synthetic incident, effect-map, lineage, and recovery examples
 - automated tests and CI across Python 3.11 and 3.12
 
 ## Quick start
@@ -436,6 +498,15 @@ erpchaos effect project \
   examples/real-estate/property-sale.effects.yaml
 ```
 
+Project causal compensation lineage:
+
+```bash
+erpchaos lineage project \
+  examples/real-estate/payment-lineage.events.yaml \
+  examples/real-estate/property-sale.effects.yaml \
+  examples/real-estate/property-sale.lineage.yaml
+```
+
 Run the full duplicate-payment history experiment:
 
 ```bash
@@ -455,7 +526,7 @@ erpchaos experiment run \
   --effect-map examples/real-estate/property-sale.effects.yaml
 ```
 
-Run a deterministic recovery experiment after the duplicate-payment failure:
+Run deterministic history-only recovery:
 
 ```bash
 erpchaos recovery run \
@@ -466,16 +537,17 @@ erpchaos recovery run \
   examples/real-estate/payment-recovered.recovery.yaml
 ```
 
-Run compensation-aware recovery using history and net business effects together:
+Run causal compensation recovery:
 
 ```bash
 erpchaos recovery run \
   examples/real-estate/property-sale.events.brc.yaml \
   examples/real-estate/duplicate-payment.scenario.yaml \
   examples/real-estate/property-sale.events.yaml \
-  examples/real-estate/payment-effect-recovery.brc.yaml \
-  examples/real-estate/payment-recovered.recovery.yaml \
-  --effect-map examples/real-estate/property-sale.effects.yaml
+  examples/real-estate/payment-lineage-recovery.brc.yaml \
+  examples/real-estate/payment-lineage-correct.recovery.yaml \
+  --effect-map examples/real-estate/property-sale.effects.yaml \
+  --lineage-policy examples/real-estate/property-sale.lineage.yaml
 ```
 
 Run an ordering experiment where payment is moved ahead of finance approval:
@@ -518,7 +590,7 @@ erpchaos incident sanitize \
 erpchaos incident validate /tmp/property-sale.safe.yaml
 ```
 
-Business-correctness and unrecovered/partially recovered business failures use exit code `1`. Invalid configuration, unsafe incident input, effect-map input, and adapter input use exit code `2`.
+Business-correctness and unrecovered/partially recovered business failures use exit code `1`. Invalid configuration, unsafe incident input, effect-map/lineage input, and adapter input use exit code `2`.
 
 ## Architecture direction
 
@@ -529,11 +601,11 @@ The core stays vendor-neutral:
                                                   |
                                                   v
 ERP Event Stream -> Chaos -> Replay -> Combined Business State -> Invariant Engine -> BRS
-                                  /             \
-                                 /               \
-                       Event History         Effect Ledger
-                                               |
-                                     optional Effect Map
+                                  /        |        \
+                                 /         |         \
+                       Event History   Effect Ledger  Causal Lineage
+                                           |              |
+                                      Effect Map     Lineage Policy
 
 Known Failed Transaction -> Recovery Events -> Combined Business State
                                                    |
@@ -565,9 +637,10 @@ Planned work includes:
 
 - richer shared-resource and history-aware invariants
 - typed and value-aware business effects with deterministic numeric semantics
+- richer causal graphs beyond one-to-one unit compensation
 - runtime-authenticated read-only Odoo extraction
 - generic REST and webhook adapters
-- BRC, Recovery Contract, and Effect Map schema versioning
+- BRC, Recovery Contract, Effect Map, and Lineage Policy schema versioning
 - richer PII detection hooks and organization-specific sanitization policies
 - OpenTelemetry correlation
 - machine-readable experiment reports for external CI policy engines
@@ -577,19 +650,21 @@ Planned work includes:
 1. Business correctness is a reliability concern.
 2. Deterministic verification comes before AI assistance.
 3. Infrastructure health does not imply transaction integrity.
-4. Event history and net business effect are different forms of evidence.
-5. Recovery is not complete until explicit business invariants pass.
-6. Reaching consistency temporarily is not the same as stable recovery.
-7. Raw production incident data must stay outside the repository.
-8. Production-derived fixtures must be sanitized and validated before replay.
-9. Vendor-specific ERP behavior belongs behind adapters.
-10. Every new failure mode and recovery path should be reproducible in CI.
-11. Chaos execution must default to safe, non-production environments.
-12. Concurrency schedules must be reproducible rather than timing-dependent.
-13. ERP adapters must fail closed and must not store credentials in fixtures.
-14. Pseudonymization keys must be runtime-only secrets, never repository configuration.
-15. Recovery events are fixtures, never implicit production mutations.
-16. Effect projections must use explicit deterministic arithmetic; v0.10 uses signed integers only.
+4. Event history, net business effect, and causal provenance are different forms of evidence.
+5. A correct net balance does not prove the correct contribution was compensated.
+6. Recovery is not complete until explicit business invariants pass.
+7. Reaching consistency temporarily is not the same as stable recovery.
+8. Raw production incident data must stay outside the repository.
+9. Production-derived fixtures must be sanitized and validated before replay.
+10. Vendor-specific ERP behavior belongs behind adapters.
+11. Every new failure mode and recovery path should be reproducible in CI.
+12. Chaos execution must default to safe, non-production environments.
+13. Concurrency schedules must be reproducible rather than timing-dependent.
+14. ERP adapters must fail closed and must not store credentials in fixtures.
+15. Pseudonymization keys must be runtime-only secrets, never repository configuration.
+16. Recovery events are fixtures, never implicit production mutations.
+17. Effect projections must use explicit deterministic arithmetic; v0.10+ uses signed integers for cardinality effects.
+18. Lineage v1 is one-to-one and requires unique event IDs plus explicit prior-origin references.
 
 ## Status
 
