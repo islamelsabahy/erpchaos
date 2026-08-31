@@ -2,15 +2,19 @@
 
 > **Your infrastructure can be green while your business is broken.**
 
-ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, and competing transactions that can leave technically healthy systems in financially or operationally invalid states.
+ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, competing transactions, and failed recovery paths that can leave technically healthy systems in financially or operationally invalid states.
 
-ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts** and business event streams as reproducible chaos experiments.
+ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts**, business event streams as reproducible chaos experiments, and recovery behavior as something that can be measured and gated in CI.
 
 ## Why ERPChaos?
 
 Traditional chaos engineering asks whether infrastructure survives failure.
 
-ERPChaos asks whether the **business transaction remains correct** when failure happens.
+ERPChaos asks three different questions:
+
+1. **Did the business transaction remain correct when failure happened?**
+2. **If it broke, did the compensating business flow actually recover it?**
+3. **Did the recovered state stay consistent, or did recovery regress later?**
 
 Examples:
 
@@ -20,6 +24,7 @@ Examples:
 - Can a sold unit accidentally return to available state?
 - Can out-of-order events corrupt a workflow while every service still reports healthy?
 - Can a real incident be converted into a safe deterministic regression fixture without committing PII or credentials?
+- Can a duplicate payment be compensated correctly, and can ERPChaos prove the recovery stays stable?
 
 ## Core concepts
 
@@ -64,7 +69,7 @@ Supported chaos primitives:
 
 ### Event-history projection
 
-After replay, ERPChaos converts the mutated event stream into deterministic BRC-readable state. Each normalized event type exposes its occurrence count and first/last positions.
+After replay, ERPChaos converts the mutated event stream into deterministic BRC-readable state. Each normalized event type exposes occurrence count and first/last positions.
 
 ```yaml
 history:
@@ -90,6 +95,51 @@ Counts alone are not enough. A transaction can contain all required events and s
 ```
 
 A `reorder_event` fault can move payment ahead of finance approval while preserving every event count. ERPChaos detects that semantic failure through the ordering invariant.
+
+### Business Recovery Engineering
+
+ERPChaos can continue after a known chaos-induced business failure and evaluate ordered compensating events against a dedicated `RecoveryContract`.
+
+```text
+Baseline EventStream
+        |
+        v
+     Chaos
+        |
+        v
+Business Failure
+        |
+        v
+Recovery Events
+        |
+        +--> checkpoint -> Recovery Contract -> RRS
+        +--> checkpoint -> Recovery Contract -> RRS
+        |
+        v
+Final Recovery Classification
+```
+
+Recovery is deterministic and fixture-based. ERPChaos does not execute compensating writes against a production ERP.
+
+Recovery results include:
+
+- **Recovery Reliability Score (RRS)** — severity-weighted recovery score from `0` to `100`.
+- **Time to Business Consistency (TTBC)** — first deterministic recovery-event step where all recovery invariants pass.
+- **Recovery status** — `RECOVERED`, `PARTIALLY_RECOVERED`, or `UNRECOVERED`.
+- **Recovery regression detection** — identifies a transaction that reached consistency and then became inconsistent again because of later compensation.
+
+Example:
+
+```bash
+erpchaos recovery run \
+  examples/real-estate/property-sale.events.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml \
+  examples/real-estate/payment-recovery.brc.yaml \
+  examples/real-estate/payment-recovered.recovery.yaml
+```
+
+See [`docs/RECOVERY_ENGINEERING.md`](docs/RECOVERY_ENGINEERING.md) for the full recovery model and CI contract.
 
 ### Deterministic concurrency
 
@@ -166,10 +216,10 @@ The repository raw incident example is synthetic only. Real raw incident capture
 
 ### GitHub Action
 
-ERPChaos can also be consumed directly as a composite GitHub Action. The current immutable alpha reference is the v0.7 merge commit:
+ERPChaos can also be consumed directly as a composite GitHub Action. A known-good immutable reference from the v0.8 mainline is:
 
 ```yaml
-- uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
+- uses: islamelsabahy/erpchaos@a297e940dd6255dd3148838bfa78e980329dccb1
   with:
     mode: experiment
     contract: reliability/property-sale.events.brc.yaml
@@ -179,9 +229,9 @@ ERPChaos can also be consumed directly as a composite GitHub Action. The current
 
 The Action preserves the CLI exit-code contract and publishes `status` plus `exit-code` outputs and a Job Summary. See [`docs/GITHUB_ACTION.md`](docs/GITHUB_ACTION.md).
 
-### Chaos experiment
+## Experiment shapes
 
-A standard experiment closes the single-transaction reliability loop:
+A standard chaos experiment closes the single-transaction reliability loop:
 
 ```text
 Event Stream
@@ -195,6 +245,19 @@ History Projection
 BRC Evaluation
     |
 Business Reliability Score
+```
+
+A recovery experiment extends the loop after a business failure:
+
+```text
+Event Stream -> Chaos -> Failed Projection -> Recovery Event 1 -> Recovery Contract
+                                                    |
+                                                    v
+                                                   RRS
+                                                    |
+                                   Recovery Event N -> Final Status
+                                                    |
+                                      TTBC + Regression Detection
 ```
 
 A concurrency experiment evaluates a shared-resource race:
@@ -216,26 +279,32 @@ Local Raw Incident -> Sanitization Policy -> HMAC Pseudonyms -> Leak Validation
                                                                v
                                                      Safe EventStream Fixture
                                                                |
-                                                        Replay / Experiment
+                                                  Replay / Chaos / Recovery
 ```
 
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, recovery evaluation, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.8.0-alpha` development provides:
+`v0.9.0-alpha` development provides:
 
 - Business Reliability Contract model
 - deterministic invariant evaluator
 - literal and cross-path ordering operators
-- severity-weighted reliability score
+- severity-weighted Business Reliability Score
 - vendor-neutral business event streams
 - five deterministic fault injection primitives
 - ordered transaction replay engine
 - deterministic event-history projection
 - end-to-end post-chaos BRC evaluation
+- deterministic Business Recovery Engineering
+- Recovery Contracts and ordered recovery scenarios
+- Recovery Reliability Score (RRS)
+- deterministic Time to Business Consistency (TTBC)
+- `RECOVERED`, `PARTIALLY_RECOVERED`, and `UNRECOVERED` classification
+- recovery-regression detection after temporary consistency
 - deterministic competing-transaction interleaving
 - shared-resource exclusivity evaluation
 - Business Race Condition detection
@@ -250,8 +319,8 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - default-drop payload handling
 - forced credential-field removal
 - obvious PII leak detection and replay-fixture validation
-- CLI verification, replay, experiment, concurrency, adapter, and incident commands
-- real-estate, synthetic Odoo, and synthetic incident examples
+- CLI verification, replay, experiment, recovery, concurrency, adapter, and incident commands
+- real-estate, synthetic Odoo, synthetic incident, and recovery examples
 - automated tests and CI across Python 3.11 and 3.12
 
 ## Quick start
@@ -287,6 +356,17 @@ erpchaos experiment run \
   examples/real-estate/property-sale.events.brc.yaml \
   examples/real-estate/duplicate-payment.scenario.yaml \
   examples/real-estate/property-sale.events.yaml
+```
+
+Run a deterministic recovery experiment after the duplicate-payment failure:
+
+```bash
+erpchaos recovery run \
+  examples/real-estate/property-sale.events.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml \
+  examples/real-estate/payment-recovery.brc.yaml \
+  examples/real-estate/payment-recovered.recovery.yaml
 ```
 
 Run an ordering experiment where payment is moved ahead of finance approval:
@@ -329,23 +409,33 @@ erpchaos incident sanitize \
 erpchaos incident validate /tmp/property-sale.safe.yaml
 ```
 
-Business-correctness failures use exit code `1`; invalid configuration, unsafe incident input, and adapter input use exit code `2`.
+Business-correctness and unrecovered/partially recovered business failures use exit code `1`. Invalid configuration, unsafe incident input, and adapter input use exit code `2`.
 
 ## Architecture direction
 
 The core stays vendor-neutral:
 
 ```text
-                     Business Reliability Contract
-                              |
-                              v
-ERP Event Stream -> Chaos -> Replay -> Projection -> Invariant Engine
-                     |                         |             |
-                   Faults                  State Model      BRS
+                         Business Reliability Contract
+                                  |
+                                  v
+ERP Event Stream -> Chaos -> Replay -> Projection -> Invariant Engine -> BRS
+                     |
+                     +--> known failed transaction
+                                  |
+                                  v
+                         Recovery Scenario
+                                  |
+                         Recovery Checkpoints
+                                  |
+                                  v
+                         Recovery Contract
+                                  |
+                    RRS + TTBC + Regression Check
 
-Competing Event Streams -> Deterministic Scheduler -> Exclusivity Engine
-                                  |                    |
-                           Shared Resource             BRS
+Competing Event Streams -> Deterministic Scheduler -> Exclusivity Engine -> BRS
+                                  |
+                           Shared Resource
 
 Odoo Export -> Safe Odoo Read Adapter -> Vendor-neutral Event Streams
                      |
@@ -366,26 +456,30 @@ Vendor-specific integrations must remain behind the adapter boundary. Any future
 Planned work includes:
 
 - richer shared-resource and history-aware invariants
+- compensation-aware projections beyond event counts
 - runtime-authenticated read-only Odoo extraction
 - generic REST and webhook adapters
-- BRC schema versioning
-- recovery scoring
+- BRC and Recovery Contract schema versioning
 - richer PII detection hooks and organization-specific sanitization policies
 - OpenTelemetry correlation
+- machine-readable experiment reports for external CI policy engines
 
 ## Project principles
 
 1. Business correctness is a reliability concern.
 2. Deterministic verification comes before AI assistance.
 3. Infrastructure health does not imply transaction integrity.
-4. Raw production incident data must stay outside the repository.
-5. Production-derived fixtures must be sanitized and validated before replay.
-6. Vendor-specific ERP behavior belongs behind adapters.
-7. Every new failure mode should be reproducible in CI.
-8. Chaos execution must default to safe, non-production environments.
-9. Concurrency schedules must be reproducible rather than timing-dependent.
-10. ERP adapters must fail closed and must not store credentials in fixtures.
-11. Pseudonymization keys must be runtime-only secrets, never repository configuration.
+4. Recovery is not complete until explicit business invariants pass.
+5. Reaching consistency temporarily is not the same as stable recovery.
+6. Raw production incident data must stay outside the repository.
+7. Production-derived fixtures must be sanitized and validated before replay.
+8. Vendor-specific ERP behavior belongs behind adapters.
+9. Every new failure mode and recovery path should be reproducible in CI.
+10. Chaos execution must default to safe, non-production environments.
+11. Concurrency schedules must be reproducible rather than timing-dependent.
+12. ERP adapters must fail closed and must not store credentials in fixtures.
+13. Pseudonymization keys must be runtime-only secrets, never repository configuration.
+14. Recovery events are fixtures, never implicit production mutations.
 
 ## Status
 
