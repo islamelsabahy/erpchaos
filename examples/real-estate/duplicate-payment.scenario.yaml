@@ -1,0 +1,6 @@
+name: duplicate-payment-callback
+description: Simulate a payment callback being delivered twice after a successful collection.
+faults:
+  - type: duplicate_event
+    target_event_id: payment.received
+    repeat: 1
