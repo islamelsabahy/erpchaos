@@ -10,7 +10,6 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.effects import EffectMap
-from erpchaos.engine import reliability_score
 from erpchaos.events import EventStream
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
@@ -107,9 +106,7 @@ def repair_synthesize(
     console.print(f"Repair Status: [bold]{result.status.value}[/bold]")
     console.print(f"Searched Plans: [bold]{result.searched_plan_count}[/bold]")
     console.print(f"Selected Plan Length: [bold]{plan_length}[/bold]")
-    console.print(
-        f"Recovery Reliability Score: [bold]{reliability_score(result.invariant_results)}/100[/bold]"
-    )
+    console.print(f"Recovery Reliability Score: [bold]{result.score}/100[/bold]")
 
     if not result.passed:
         raise typer.Exit(code=1)
