@@ -26,7 +26,7 @@ After the workflows have run at least once, require these checks:
 - `evidence byte consistency`
 - `composite action contract`
 - `reproducible package build`
-- `dependency review`
+- `dependency audit`
 
 Do not require a release job on normal pull requests; release is tag-triggered only.
 
@@ -35,8 +35,13 @@ Do not require a release job on normal pull requests; release is tag-triggered o
 - Repository workflows default to `contents: read`.
 - Release-only permissions are scoped to the release job.
 - External GitHub Actions are pinned to immutable commit SHAs.
+- The Python build backend is pinned for packaging reproducibility.
 - Dependabot may propose dependency/action updates, but CI must pass before merge.
-- PR dependency review rejects newly introduced high/critical vulnerable dependencies.
+- `pip-audit --strict .` audits resolved project dependencies on pull requests and pushes to `main`.
+
+### GitHub Dependency Review
+
+GitHub's native Dependency Review action requires the repository **Dependency graph** setting. If Dependency graph is enabled later under repository security settings, native Dependency Review can be added as an additional PR gate. The executable `dependency audit` gate does not depend on that repository setting and remains mandatory.
 
 ## Release policy
 
@@ -53,13 +58,14 @@ The release workflow:
 
 1. verifies tag/version equality;
 2. builds wheel and sdist twice using the same `SOURCE_DATE_EPOCH`;
-3. requires byte-identical package artifacts;
-4. validates metadata with Twine;
-5. installs the wheel into a clean virtual environment;
-6. generates a reproducible CycloneDX SBOM from that environment;
-7. creates GitHub/Sigstore provenance and SBOM attestations;
-8. records SHA-256 checksums;
-9. creates the GitHub Release.
+3. requires byte-identical wheel artifacts;
+4. requires extracted sdist contents to be identical, avoiding false failures from gzip envelope metadata;
+5. validates metadata with Twine;
+6. installs the wheel into a clean virtual environment;
+7. generates a reproducible CycloneDX SBOM from that environment;
+8. creates GitHub/Sigstore provenance and SBOM attestations;
+9. records SHA-256 checksums;
+10. creates the GitHub Release.
 
 PyPI publishing is deliberately excluded until Trusted Publishing is configured separately. Do not add API tokens to the repository.
 
@@ -73,6 +79,6 @@ sha256sum -c SHA256SUMS
 
 GitHub artifact attestations can additionally be verified with the GitHub CLI against this repository.
 
-## Connected-tool limitation
+## Connected-tool limitations
 
-The connected GitHub integration used to maintain this repository can read branch protection and rulesets but does not expose a write operation for repository rules. The ruleset itself therefore has to be enabled once in GitHub repository settings; all workflow-side controls live in version control.
+The connected GitHub integration used to maintain this repository can read branch protection, rulesets, and security state, but does not expose write operations for the repository rules or Dependency graph setting. Those repository-level controls therefore require a one-time GitHub Settings change; workflow-side controls remain versioned in the repository.
