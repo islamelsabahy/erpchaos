@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-erpchaos = "erpchaos.cli:app"
+erpchaos = "erpchaos.root_cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/erpchaos"]
