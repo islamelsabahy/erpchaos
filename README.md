@@ -1,3 +1,5 @@
+[![License](https://img.shields.io/github/license/islamelsabahy/erpchaos)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![Status](https://img.shields.io/badge/status-alpha-orange)](#current-alpha)
+
 # ERPChaos
 
 > **Your infrastructure can be green while your business is broken.**
