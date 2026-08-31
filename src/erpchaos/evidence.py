@@ -187,8 +187,9 @@ def load_evidence(path: Path) -> BusinessReliabilityEvidence:
 def verify_evidence(evidence: BusinessReliabilityEvidence) -> bool:
     """Verify the evidence self-digest without external services."""
 
+    expected = evidence.evidence_digest
     payload = evidence.model_dump(mode="json", by_alias=True)
-    expected = payload.pop("evidence_digest")
+    payload.pop("evidence_digest")
     return expected == _evidence_digest(payload)
 
 
