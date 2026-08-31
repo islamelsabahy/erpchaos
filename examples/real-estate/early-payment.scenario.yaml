@@ -1,0 +1,6 @@
+name: payment-before-finance-approval
+description: Move payment receipt ahead of finance approval while preserving event counts.
+faults:
+  - type: reorder_event
+    target_event_id: payment.received
+    positions: 2

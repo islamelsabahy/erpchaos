@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from erpchaos.models import BusinessReliabilityContract, Invariant
+from erpchaos.models import BusinessReliabilityContract, Invariant, Operator
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,7 @@ class InvariantResult:
     actual: Any
     expected: Any
     severity: str
+    expected_path: str | None = None
 
 
 def _resolve_path(payload: dict[str, Any], path: str) -> Any:
@@ -24,20 +25,33 @@ def _resolve_path(payload: dict[str, Any], path: str) -> Any:
     return current
 
 
-def _evaluate(invariant: Invariant, payload: dict[str, Any]) -> InvariantResult:
+def _safe_resolve_path(payload: dict[str, Any], path: str) -> Any:
     try:
-        actual = _resolve_path(payload, invariant.path)
+        return _resolve_path(payload, path)
     except KeyError:
-        actual = None
+        return None
 
-    if invariant.operator == "equals":
-        passed = actual == invariant.expected
-    elif invariant.operator == "not_equals":
-        passed = actual != invariant.expected
-    elif invariant.operator == "lte":
-        passed = actual is not None and actual <= invariant.expected
-    elif invariant.operator == "gte":
-        passed = actual is not None and actual >= invariant.expected
+
+def _evaluate(invariant: Invariant, payload: dict[str, Any]) -> InvariantResult:
+    actual = _safe_resolve_path(payload, invariant.path)
+    expected = invariant.expected
+
+    if invariant.operator in {Operator.before, Operator.after}:
+        assert invariant.expected_path is not None
+        expected = _safe_resolve_path(payload, invariant.expected_path)
+
+    if invariant.operator == Operator.equals:
+        passed = actual == expected
+    elif invariant.operator == Operator.not_equals:
+        passed = actual != expected
+    elif invariant.operator == Operator.lte:
+        passed = actual is not None and actual <= expected
+    elif invariant.operator == Operator.gte:
+        passed = actual is not None and actual >= expected
+    elif invariant.operator == Operator.before:
+        passed = actual is not None and expected is not None and actual < expected
+    elif invariant.operator == Operator.after:
+        passed = actual is not None and expected is not None and actual > expected
     else:
         raise ValueError(f"Unsupported operator: {invariant.operator}")
 
@@ -45,8 +59,9 @@ def _evaluate(invariant: Invariant, payload: dict[str, Any]) -> InvariantResult:
         name=invariant.name,
         passed=passed,
         actual=actual,
-        expected=invariant.expected,
+        expected=expected,
         severity=invariant.severity.value,
+        expected_path=invariant.expected_path,
     )
 
 

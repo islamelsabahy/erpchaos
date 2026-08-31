@@ -33,3 +33,9 @@ invariants:
     operator: equals
     expected: 1
     severity: high
+  - name: finance-before-payment
+    description: Finance approval must occur before payment receipt.
+    path: history.types.finance_approved.first_position
+    operator: before
+    expected_path: history.types.payment_received.first_position
+    severity: critical

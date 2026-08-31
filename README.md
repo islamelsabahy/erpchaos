@@ -16,8 +16,8 @@ Examples:
 
 - Can one property be sold twice during concurrent reservations?
 - Can a retry create duplicate payments or commissions?
+- Can payment happen before finance approval while every event still exists?
 - Can a sold unit accidentally return to available state?
-- Can a transaction complete before finance approval?
 - Can out-of-order events corrupt a workflow while every service still reports healthy?
 
 ## Core concepts
@@ -35,7 +35,15 @@ invariants:
     operator: equals
     expected: 1
     severity: critical
+
+  - name: finance-before-payment
+    path: history.types.finance_approved.first_position
+    operator: before
+    expected_path: history.types.payment_received.first_position
+    severity: critical
 ```
+
+Literal operators currently include `equals`, `not_equals`, `lte`, and `gte`. Cross-path ordering operators include `before` and `after`.
 
 ### Business Reliability Score (BRS)
 
@@ -70,6 +78,20 @@ history:
 
 This lets a BRC evaluate the **result of chaos**, not only a static fixture.
 
+### Cross-event ordering
+
+Counts alone are not enough. A transaction can contain all required events and still be invalid because they happened in the wrong order.
+
+```yaml
+- name: finance-before-payment
+  path: history.types.finance_approved.first_position
+  operator: before
+  expected_path: history.types.payment_received.first_position
+  severity: critical
+```
+
+A `reorder_event` fault can move payment ahead of finance approval while preserving every event count. ERPChaos detects that semantic failure through the ordering invariant.
+
 ### Chaos experiment
 
 An experiment closes the reliability loop:
@@ -94,10 +116,11 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 
 ## Current alpha
 
-`v0.3.0-alpha` provides:
+`v0.4.0-alpha` provides:
 
 - Business Reliability Contract model
 - Deterministic invariant evaluator
+- Literal and cross-path ordering operators
 - Severity-weighted reliability score
 - Vendor-neutral business event streams
 - Five deterministic fault injection primitives
@@ -105,7 +128,7 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - Deterministic event-history projection
 - End-to-end post-chaos BRC evaluation
 - CLI verification, replay, and experiment commands
-- Real-estate transaction examples
+- Real-estate duplicate-payment and early-payment scenarios
 - Automated tests
 - GitHub Actions CI across Python 3.11 and 3.12
 
@@ -135,7 +158,7 @@ erpchaos chaos run \
   examples/real-estate/property-sale.events.yaml
 ```
 
-Run the full chaos experiment and evaluate the post-chaos history:
+Run the full duplicate-payment experiment:
 
 ```bash
 erpchaos experiment run \
@@ -144,7 +167,16 @@ erpchaos experiment run \
   examples/real-estate/property-sale.events.yaml
 ```
 
-The duplicate-payment experiment exits with code `1` because `payment_received.count` becomes `2`, breaking the critical payment-idempotency invariant. That makes ERPChaos usable as a business-correctness deployment gate in CI/CD.
+Run an ordering experiment where payment is moved ahead of finance approval:
+
+```bash
+erpchaos experiment run \
+  examples/real-estate/property-sale.events.brc.yaml \
+  examples/real-estate/early-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml
+```
+
+Both experiments exit with code `1`, but for different business reasons: one violates idempotency, while the other violates transaction ordering. That makes ERPChaos usable as a business-correctness deployment gate in CI/CD.
 
 ## Architecture direction
 
@@ -169,9 +201,8 @@ Vendor-specific ERP integrations will translate external activity into ERPChaos 
 
 Planned work includes:
 
-- cross-event ordering invariants
 - concurrency experiments
-- richer idempotency assertions over event histories
+- richer history-aware invariants
 - generic REST and webhook adapters
 - Odoo adapter
 - BRC schema versioning

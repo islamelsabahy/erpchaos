@@ -32,7 +32,7 @@ jobs:
         run: erpchaos verify examples/real-estate/property-sale.brc.yaml examples/real-estate/healthy-state.yaml
       - name: Smoke test chaos replay
         run: erpchaos chaos run examples/real-estate/duplicate-payment.scenario.yaml examples/real-estate/property-sale.events.yaml
-      - name: Smoke test experiment failure detection
+      - name: Smoke test duplicate-payment detection
         shell: bash
         run: |
           set +e
@@ -43,6 +43,20 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 1 ]; then
-            echo "Expected business invariant failure exit code 1, got $status"
+            echo "Expected duplicate-payment invariant failure exit code 1, got $status"
+            exit 1
+          fi
+      - name: Smoke test ordering failure detection
+        shell: bash
+        run: |
+          set +e
+          erpchaos experiment run \
+            examples/real-estate/property-sale.events.brc.yaml \
+            examples/real-estate/early-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected ordering invariant failure exit code 1, got $status"
             exit 1
           fi
