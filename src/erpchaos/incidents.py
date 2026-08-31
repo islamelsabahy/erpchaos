@@ -65,9 +65,9 @@ class IncidentFieldRule(BaseModel):
 
 
 class IncidentSanitizationPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    schema: Literal["erpchaos.incident-sanitization-policy.v1"]
+    schema_version: Literal["erpchaos.incident-sanitization-policy.v1"] = Field(alias="schema")
     name: str = Field(min_length=1)
     default_action: Literal["drop"] = "drop"
     pii_detection: bool = True
