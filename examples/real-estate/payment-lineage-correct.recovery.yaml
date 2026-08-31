@@ -1,0 +1,7 @@
+name: Reverse duplicate payment by causal target
+events:
+  - event_id: payment.reversed
+    event_type: payment.reversed
+    payload:
+      reason: duplicate-callback-compensation
+      compensates_event_id: payment.received#dup1
