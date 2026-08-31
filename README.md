@@ -19,6 +19,7 @@ Examples:
 - Can payment happen before finance approval while every event still exists?
 - Can a sold unit accidentally return to available state?
 - Can out-of-order events corrupt a workflow while every service still reports healthy?
+- Can a real incident be converted into a safe deterministic regression fixture without committing PII or credentials?
 
 ## Core concepts
 
@@ -53,7 +54,7 @@ ERPChaos evaluates invariant results using severity-weighted scoring and returns
 
 ERPChaos represents a transaction as an ordered, vendor-neutral event stream and applies declared faults in a deterministic sequence. The same input stream and scenario always produce the same mutated timeline.
 
-Supported chaos primitives in the current alpha:
+Supported chaos primitives:
 
 - `duplicate_event`
 - `drop_event`
@@ -64,8 +65,6 @@ Supported chaos primitives in the current alpha:
 ### Event-history projection
 
 After replay, ERPChaos converts the mutated event stream into deterministic BRC-readable state. Each normalized event type exposes its occurrence count and first/last positions.
-
-A duplicated `payment.received` event becomes:
 
 ```yaml
 history:
@@ -113,7 +112,7 @@ schedule:
   - reservation-B
 ```
 
-Each schedule entry consumes the next event from that transaction. If both transactions emit `reservation.succeeded` while `max_successes` is `1`, ERPChaos reports a **Business Race Condition** and fails with exit code `1`.
+If both transactions emit `reservation.succeeded` while `max_successes` is `1`, ERPChaos reports a **Business Race Condition** and fails with exit code `1`.
 
 ### Safe Odoo read adapter
 
@@ -132,19 +131,57 @@ The current adapter is deliberately constrained:
 - unmapped source activity fails closed instead of being silently dropped
 - the adapter does not contact Odoo; it translates an already exported fixture
 
-Synthetic example:
-
 ```bash
 erpchaos adapter odoo translate \
   examples/odoo/property-sale.export.yaml \
   --output /tmp/odoo-event-streams.yaml
 ```
 
-The resulting YAML contains schema-valid ERPChaos event streams and does not retain the raw transaction identifier used by the source fixture.
+### Safe incident replay
+
+ERPChaos can turn a locally captured incident into a replay-safe `EventStream` while preserving event order and correlation.
+
+Safety rules:
+
+- transaction and event IDs are always HMAC-pseudonymized
+- the pseudonymization key is runtime-only and never belongs in policy YAML
+- payload fields are dropped by default
+- surviving fields require explicit `keep`, `tokenize`, `redact`, or `drop` rules
+- credential fields are always dropped and cannot be configured for another action
+- obvious PII cannot be kept in raw form
+- generated fixtures receive a second fail-closed validation pass
+
+```bash
+export ERPCHAOS_PSEUDONYM_KEY='replace-with-runtime-secret-key'
+
+erpchaos incident sanitize \
+  examples/incidents/property-sale.raw.synthetic.yaml \
+  examples/incidents/property-sale.policy.yaml \
+  --output /tmp/property-sale.safe.yaml
+
+erpchaos incident validate /tmp/property-sale.safe.yaml
+```
+
+The repository raw incident example is synthetic only. Real raw incident captures should remain outside the repository. See [`docs/INCIDENT_REPLAY.md`](docs/INCIDENT_REPLAY.md).
+
+### GitHub Action
+
+ERPChaos can also be consumed directly as a composite GitHub Action. The current immutable alpha reference is the v0.7 merge commit:
+
+```yaml
+- uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
+  with:
+    mode: experiment
+    contract: reliability/property-sale.events.brc.yaml
+    scenario: reliability/duplicate-payment.scenario.yaml
+    stream: reliability/property-sale.events.yaml
+```
+
+The Action preserves the CLI exit-code contract and publishes `status` plus `exit-code` outputs and a Job Summary. See [`docs/GITHUB_ACTION.md`](docs/GITHUB_ACTION.md).
 
 ### Chaos experiment
 
-A standard chaos experiment closes the single-transaction reliability loop:
+A standard experiment closes the single-transaction reliability loop:
 
 ```text
 Event Stream
@@ -171,34 +208,51 @@ Transaction B ----/
                        unit:A-203
 ```
 
+A safe incident workflow creates deterministic regression input:
+
+```text
+Local Raw Incident -> Sanitization Policy -> HMAC Pseudonyms -> Leak Validation
+                                                               |
+                                                               v
+                                                     Safe EventStream Fixture
+                                                               |
+                                                        Replay / Experiment
+```
+
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, concurrency experiments, and ERP translation remain deterministic and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, concurrency experiments, ERP translation, and incident sanitization remain deterministic and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.6.0-alpha` provides:
+`v0.8.0-alpha` development provides:
 
 - Business Reliability Contract model
-- Deterministic invariant evaluator
-- Literal and cross-path ordering operators
-- Severity-weighted reliability score
-- Vendor-neutral business event streams
-- Five deterministic fault injection primitives
-- Ordered transaction replay engine
-- Deterministic event-history projection
-- End-to-end post-chaos BRC evaluation
-- Deterministic competing-transaction interleaving
-- Shared-resource exclusivity evaluation
+- deterministic invariant evaluator
+- literal and cross-path ordering operators
+- severity-weighted reliability score
+- vendor-neutral business event streams
+- five deterministic fault injection primitives
+- ordered transaction replay engine
+- deterministic event-history projection
+- end-to-end post-chaos BRC evaluation
+- deterministic competing-transaction interleaving
+- shared-resource exclusivity evaluation
 - Business Race Condition detection
 - ERP adapter protocol boundary
-- Safe offline Odoo export adapter
-- Deterministic source identifier hashing
-- Allowlist-only Odoo payload translation
-- CLI verification, replay, experiment, concurrency, and adapter commands
-- Real-estate and synthetic Odoo examples
-- Automated tests
-- GitHub Actions CI across Python 3.11 and 3.12
+- safe offline Odoo export adapter
+- deterministic source identifier hashing
+- allowlist-only Odoo payload translation
+- reusable composite GitHub Action with `verify`, `chaos`, and `experiment` modes
+- stable GitHub Action status and exit-code outputs
+- deterministic incident sanitization policies
+- runtime-keyed HMAC pseudonymization
+- default-drop payload handling
+- forced credential-field removal
+- obvious PII leak detection and replay-fixture validation
+- CLI verification, replay, experiment, concurrency, adapter, and incident commands
+- real-estate, synthetic Odoo, and synthetic incident examples
+- automated tests and CI across Python 3.11 and 3.12
 
 ## Quick start
 
@@ -218,7 +272,7 @@ erpchaos verify \
   examples/real-estate/healthy-state.yaml
 ```
 
-Replay a duplicate-payment fault without evaluating business correctness:
+Replay a duplicate-payment fault:
 
 ```bash
 erpchaos chaos run \
@@ -247,15 +301,13 @@ erpchaos experiment run \
 Run a safe single-winner reservation race:
 
 ```bash
-erpchaos concurrency run \
-  examples/real-estate/single-winner.concurrent.yaml
+erpchaos concurrency run examples/real-estate/single-winner.concurrent.yaml
 ```
 
 Detect a double-reservation race:
 
 ```bash
-erpchaos concurrency run \
-  examples/real-estate/double-reservation.concurrent.yaml
+erpchaos concurrency run examples/real-estate/double-reservation.concurrent.yaml
 ```
 
 Translate a safe synthetic Odoo export:
@@ -266,7 +318,18 @@ erpchaos adapter odoo translate \
   --output /tmp/odoo-event-streams.yaml
 ```
 
-Business-correctness failures use exit code `1`; invalid configuration and adapter input use exit code `2`.
+Sanitize and validate a synthetic incident:
+
+```bash
+export ERPCHAOS_PSEUDONYM_KEY='synthetic-local-key-at-least-16-chars'
+erpchaos incident sanitize \
+  examples/incidents/property-sale.raw.synthetic.yaml \
+  examples/incidents/property-sale.policy.yaml \
+  --output /tmp/property-sale.safe.yaml
+erpchaos incident validate /tmp/property-sale.safe.yaml
+```
+
+Business-correctness failures use exit code `1`; invalid configuration, unsafe incident input, and adapter input use exit code `2`.
 
 ## Architecture direction
 
@@ -288,6 +351,10 @@ Odoo Export -> Safe Odoo Read Adapter -> Vendor-neutral Event Streams
                      |
               allowlist + hashing
 
+Raw Incident -> Sanitization Policy -> HMAC Pseudonyms -> Safe EventStream
+                     |                       |
+              default drop             leak validation
+
                      ERP Adapter Boundary
               Odoo / REST / Webhook / future adapters
 ```
@@ -303,8 +370,7 @@ Planned work includes:
 - generic REST and webhook adapters
 - BRC schema versioning
 - recovery scoring
-- anonymized incident replay fixtures
-- GitHub Action packaging
+- richer PII detection hooks and organization-specific sanitization policies
 - OpenTelemetry correlation
 
 ## Project principles
@@ -312,12 +378,14 @@ Planned work includes:
 1. Business correctness is a reliability concern.
 2. Deterministic verification comes before AI assistance.
 3. Infrastructure health does not imply transaction integrity.
-4. Production data must be anonymized before replay.
-5. Vendor-specific ERP behavior belongs behind adapters.
-6. Every new failure mode should be reproducible in CI.
-7. Chaos execution must default to safe, non-production environments.
-8. Concurrency schedules must be reproducible rather than timing-dependent.
-9. ERP adapters must fail closed and must not store credentials in fixtures.
+4. Raw production incident data must stay outside the repository.
+5. Production-derived fixtures must be sanitized and validated before replay.
+6. Vendor-specific ERP behavior belongs behind adapters.
+7. Every new failure mode should be reproducible in CI.
+8. Chaos execution must default to safe, non-production environments.
+9. Concurrency schedules must be reproducible rather than timing-dependent.
+10. ERP adapters must fail closed and must not store credentials in fixtures.
+11. Pseudonymization keys must be runtime-only secrets, never repository configuration.
 
 ## Status
 

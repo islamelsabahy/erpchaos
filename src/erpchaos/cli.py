@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,11 @@ from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
 from erpchaos.experiment import run_experiment
 from erpchaos.faults import ChaosScenario
+from erpchaos.incidents import (
+    IncidentSanitizationPolicy,
+    sanitize_event_stream,
+    validate_sanitized_event_stream,
+)
 from erpchaos.models import BusinessReliabilityContract
 from erpchaos.replay import replay
 
@@ -46,11 +52,16 @@ odoo_app = typer.Typer(
     help="Translate safe read-only Odoo exports.",
     no_args_is_help=True,
 )
+incident_app = typer.Typer(
+    help="Sanitize production-derived incidents into safe deterministic replay fixtures.",
+    no_args_is_help=True,
+)
 adapter_app.add_typer(odoo_app, name="odoo")
 app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
 app.add_typer(adapter_app, name="adapter")
+app.add_typer(incident_app, name="incident")
 console = Console()
 
 
@@ -197,6 +208,59 @@ def concurrency_run(scenario: Path) -> None:
 
     if not result.passed:
         raise typer.Exit(code=1)
+
+
+@incident_app.command("sanitize")
+def incident_sanitize(
+    stream: Path,
+    policy: Path,
+    output: Path | None = None,
+) -> None:
+    """Create a replay-safe incident fixture using a runtime pseudonymization key."""
+    if output is None:
+        console.print("[red]Invalid incident input:[/red] --output is required")
+        raise typer.Exit(code=2)
+
+    pseudonym_key = os.environ.get("ERPCHAOS_PSEUDONYM_KEY", "")
+    if not pseudonym_key:
+        console.print(
+            "[red]Invalid incident input:[/red] ERPCHAOS_PSEUDONYM_KEY is required at runtime"
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        event_stream = EventStream.model_validate(_load_yaml(stream))
+        sanitization_policy = IncidentSanitizationPolicy.model_validate(_load_yaml(policy))
+        result = sanitize_event_stream(event_stream, sanitization_policy, pseudonym_key)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid incident input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        yaml.safe_dump(result.stream.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    console.print("Incident sanitization: [bold]PASS[/bold]")
+    console.print(f"Policy: [bold]{sanitization_policy.name}[/bold]")
+    console.print(f"Events preserved: [bold]{len(result.stream.events)}[/bold]")
+    console.print(f"Transformed fields: [bold]{result.transformed_fields}[/bold]")
+    console.print(f"Dropped fields: [bold]{result.dropped_fields}[/bold]")
+    console.print(f"Safe replay fixture: [bold]{output}[/bold]")
+
+
+@incident_app.command("validate")
+def incident_validate(fixture: Path) -> None:
+    """Validate that an incident fixture contains only replay-safe pseudonymized data."""
+    try:
+        event_stream = EventStream.model_validate(_load_yaml(fixture))
+        validate_sanitized_event_stream(event_stream)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Unsafe incident fixture:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    console.print("Incident fixture validation: [bold]PASS[/bold]")
+    console.print(f"Events: [bold]{len(event_stream.events)}[/bold]")
 
 
 @odoo_app.command("translate")

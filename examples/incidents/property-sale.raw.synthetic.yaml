@@ -1,0 +1,21 @@
+transaction_id: INCIDENT-SALE-001
+events:
+  - event_id: event-001
+    event_type: reservation.requested
+    payload:
+      customer_email: alice@example.test
+      customer_phone: "+20 100 000 0000"
+      unit_ref: UNIT-A-203
+      state: reserved
+      access_token: synthetic-secret-value
+      internal_note: drop by default
+      source:
+        operator_email: operator@example.test
+        system: odoo
+  - event_id: event-002
+    event_type: payment.received
+    payload:
+      customer_email: alice@example.test
+      unit_ref: UNIT-A-203
+      state: paid
+      amount: 125000

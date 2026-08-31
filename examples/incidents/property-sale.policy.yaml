@@ -1,0 +1,19 @@
+schema: erpchaos.incident-sanitization-policy.v1
+name: Synthetic property-sale incident
+default_action: drop
+pii_detection: true
+rules:
+  - path: customer_email
+    action: tokenize
+  - path: customer_phone
+    action: redact
+  - path: unit_ref
+    action: tokenize
+  - path: state
+    action: keep
+  - path: amount
+    action: drop
+  - path: source.operator_email
+    action: tokenize
+  - path: source.system
+    action: keep

@@ -2,20 +2,20 @@
 
 ERPChaos can run as a deterministic CI/CD business-reliability gate without requiring a consumer repository to install the Python package manually.
 
-## Version-pinned usage
+## Immutable alpha usage
 
-Pin the action to an explicit release tag:
+Pin the Action to the exact v0.7 merge commit:
 
 ```yaml
 - name: Verify business reliability
-  uses: islamelsabahy/erpchaos@v0.7.0-alpha
+  uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
   with:
     mode: verify
     contract: reliability/property-sale.brc.yaml
     state: reliability/property-sale-state.yaml
 ```
 
-For maximum supply-chain immutability, consumers may replace the tag with the exact commit SHA resolved for that release.
+Using the full commit SHA avoids depending on a mutable branch or an unpublished tag and provides maximum supply-chain immutability.
 
 ## Modes
 
@@ -24,7 +24,7 @@ For maximum supply-chain immutability, consumers may replace the tag with the ex
 Required inputs: `contract`, `state`.
 
 ```yaml
-- uses: islamelsabahy/erpchaos@v0.7.0-alpha
+- uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
   with:
     mode: verify
     contract: reliability/property-sale.brc.yaml
@@ -36,7 +36,7 @@ Required inputs: `contract`, `state`.
 Required inputs: `scenario`, `stream`.
 
 ```yaml
-- uses: islamelsabahy/erpchaos@v0.7.0-alpha
+- uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
   with:
     mode: chaos
     scenario: reliability/duplicate-payment.scenario.yaml
@@ -48,7 +48,7 @@ Required inputs: `scenario`, `stream`.
 Required inputs: `contract`, `scenario`, `stream`.
 
 ```yaml
-- uses: islamelsabahy/erpchaos@v0.7.0-alpha
+- uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
   with:
     mode: experiment
     contract: reliability/property-sale.events.brc.yaml
@@ -91,7 +91,7 @@ Every invocation appends an **ERPChaos Business Reliability Gate** section to th
 ```yaml
 - name: ERPChaos
   id: erpchaos
-  uses: islamelsabahy/erpchaos@v0.7.0-alpha
+  uses: islamelsabahy/erpchaos@7c4c6d7ee9dde57f28d95ecdf34aa08745c0f404
   with:
     mode: verify
     contract: reliability/property-sale.brc.yaml
