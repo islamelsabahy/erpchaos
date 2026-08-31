@@ -8,7 +8,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from erpchaos import __version__
-from erpchaos.engine import InvariantResult
+from erpchaos.engine import InvariantResult, reliability_score
+from erpchaos.experiment import ExperimentResult
+from erpchaos.recovery import RecoveryResult
+from erpchaos.repair import RepairPlanResult
 
 EvidenceMode = Literal["verify", "experiment", "recovery", "repair"]
 
@@ -84,6 +87,81 @@ def build_evidence(
     }
     payload["evidence_digest"] = _evidence_digest(payload)
     return BusinessReliabilityEvidence.model_validate(payload)
+
+
+def evidence_for_verification(
+    input_paths: dict[str, Path],
+    invariants: list[InvariantResult],
+) -> BusinessReliabilityEvidence:
+    """Create evidence for static Business Reliability Contract verification."""
+
+    passed = all(invariant.passed for invariant in invariants)
+    return build_evidence(
+        mode="verify",
+        status="PASS" if passed else "BUSINESS_FAILURE",
+        input_paths=input_paths,
+        result={"score": reliability_score(invariants)},
+        invariants=invariants,
+    )
+
+
+def evidence_for_experiment(
+    input_paths: dict[str, Path],
+    experiment: ExperimentResult,
+) -> BusinessReliabilityEvidence:
+    """Create evidence for one deterministic chaos experiment."""
+
+    return build_evidence(
+        mode="experiment",
+        status="PASS" if experiment.passed else "BUSINESS_FAILURE",
+        input_paths=input_paths,
+        result={
+            "score": experiment.score,
+            "original_event_count": len(experiment.replay.original_events),
+            "mutated_event_count": len(experiment.replay.mutated_events),
+        },
+        invariants=experiment.invariant_results,
+    )
+
+
+def evidence_for_recovery(
+    input_paths: dict[str, Path],
+    recovery: RecoveryResult,
+) -> BusinessReliabilityEvidence:
+    """Create evidence for one deterministic recovery experiment."""
+
+    return build_evidence(
+        mode="recovery",
+        status=recovery.status.value,
+        input_paths=input_paths,
+        result={
+            "score": recovery.score,
+            "ttbc_steps": recovery.ttbc_steps,
+            "regressed_after_recovery": recovery.regressed_after_recovery,
+            "recovery_scenario": recovery.recovery_scenario,
+        },
+        invariants=recovery.invariant_results,
+    )
+
+
+def evidence_for_repair(
+    input_paths: dict[str, Path],
+    repair: RepairPlanResult,
+) -> BusinessReliabilityEvidence:
+    """Create evidence for deterministic minimal repair synthesis."""
+
+    return build_evidence(
+        mode="repair",
+        status=repair.status.value,
+        input_paths=input_paths,
+        result={
+            "score": repair.score,
+            "searched_plan_count": repair.searched_plan_count,
+            "selected_candidate_names": repair.selected_candidate_names,
+            "plan_length": repair.plan_length,
+        },
+        invariants=repair.invariant_results,
+    )
 
 
 def canonical_evidence_json(evidence: BusinessReliabilityEvidence) -> str:
