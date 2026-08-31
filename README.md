@@ -27,11 +27,11 @@ Examples:
 A BRC defines invariants that must remain true for a business transaction.
 
 ```yaml
-name: Property Sale Reliability Contract
-transaction: property-sale
+name: Property Sale Event Reliability Contract
+transaction: property-sale-event-history
 invariants:
   - name: payment-idempotency
-    path: payment.posted_records
+    path: history.types.payment_received.count
     operator: equals
     expected: 1
     severity: critical
@@ -53,13 +53,48 @@ Supported chaos primitives in the current alpha:
 - `reorder_event`
 - `partial_failure`
 
+### Event-history projection
+
+After replay, ERPChaos converts the mutated event stream into deterministic BRC-readable state. Each normalized event type exposes its occurrence count and first/last positions.
+
+A duplicated `payment.received` event becomes:
+
+```yaml
+history:
+  types:
+    payment_received:
+      count: 2
+      first_position: 3
+      last_position: 4
+```
+
+This lets a BRC evaluate the **result of chaos**, not only a static fixture.
+
+### Chaos experiment
+
+An experiment closes the reliability loop:
+
+```text
+Event Stream
+    |
+Fault Injection
+    |
+Deterministic Replay
+    |
+History Projection
+    |
+BRC Evaluation
+    |
+Business Reliability Score
+```
+
 ### Deterministic by design
 
 LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks and chaos experiments stay deterministic, reproducible, and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.2.0-alpha` provides:
+`v0.3.0-alpha` provides:
 
 - Business Reliability Contract model
 - Deterministic invariant evaluator
@@ -67,7 +102,9 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - Vendor-neutral business event streams
 - Five deterministic fault injection primitives
 - Ordered transaction replay engine
-- CLI verification and chaos replay commands
+- Deterministic event-history projection
+- End-to-end post-chaos BRC evaluation
+- CLI verification, replay, and experiment commands
 - Real-estate transaction examples
 - Automated tests
 - GitHub Actions CI across Python 3.11 and 3.12
@@ -90,15 +127,7 @@ erpchaos verify \
   examples/real-estate/healthy-state.yaml
 ```
 
-Test a deliberately broken state:
-
-```bash
-erpchaos verify \
-  examples/real-estate/property-sale.brc.yaml \
-  examples/real-estate/duplicate-payment-state.yaml
-```
-
-Run a deterministic duplicate-payment chaos experiment:
+Replay a duplicate-payment fault without evaluating business correctness:
 
 ```bash
 erpchaos chaos run \
@@ -106,34 +135,43 @@ erpchaos chaos run \
   examples/real-estate/property-sale.events.yaml
 ```
 
-The `verify` command exits non-zero when business invariants fail, making BRC verification usable as a CI/CD deployment gate.
+Run the full chaos experiment and evaluate the post-chaos history:
+
+```bash
+erpchaos experiment run \
+  examples/real-estate/property-sale.events.brc.yaml \
+  examples/real-estate/duplicate-payment.scenario.yaml \
+  examples/real-estate/property-sale.events.yaml
+```
+
+The duplicate-payment experiment exits with code `1` because `payment_received.count` becomes `2`, breaking the critical payment-idempotency invariant. That makes ERPChaos usable as a business-correctness deployment gate in CI/CD.
 
 ## Architecture direction
 
 The core stays vendor-neutral:
 
 ```text
-Business Reliability Contracts
-            |
-      Invariant Engine
-            |
-Event Stream -> Chaos Engine -> Mutated Event Stream
-            |         |
-         Replay     Faults
-            |
-       ERP Adapters
-   Odoo / REST / Webhook / ...
+                     Business Reliability Contract
+                              |
+                              v
+ERP Event Stream -> Chaos -> Replay -> Projection -> Invariant Engine
+                     |                         |             |
+                   Faults                  State Model      BRS
+                     ^
+                     |
+             ERP Adapter Boundary
+        Odoo / REST / Webhook / future adapters
 ```
 
-Vendor-specific ERP integrations will translate external activity into ERPChaos event streams and apply replay only in explicitly controlled test environments.
+Vendor-specific ERP integrations will translate external activity into ERPChaos event streams and execute only inside explicitly controlled test environments.
 
 ## Direction
 
 Planned work includes:
 
-- state projection from replayed event streams
+- cross-event ordering invariants
 - concurrency experiments
-- idempotency assertions over event histories
+- richer idempotency assertions over event histories
 - generic REST and webhook adapters
 - Odoo adapter
 - BRC schema versioning
