@@ -13,6 +13,7 @@ from erpchaos.events import BusinessEvent, EventStream
 from erpchaos.experiment import ExperimentResult, run_experiment
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
+from erpchaos.models import BusinessReliabilityContract
 from erpchaos.projection import project_business_state
 from erpchaos.recovery import RecoveryContract
 
@@ -74,7 +75,7 @@ class RepairPlanResult:
 
 
 def synthesize_repair_plan(
-    business_contract: RecoveryContract | Any,
+    business_contract: BusinessReliabilityContract,
     chaos_scenario: ChaosScenario,
     stream: EventStream,
     recovery_contract: RecoveryContract,
