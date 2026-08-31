@@ -16,6 +16,7 @@ from erpchaos.adapters.odoo import (
     export_event_stream_document,
 )
 from erpchaos.concurrency import ConcurrencyScenario, run_concurrency
+from erpchaos.effects import EffectMap, project_effect_ledger
 from erpchaos.engine import InvariantResult, reliability_score, verify_contract
 from erpchaos.events import EventStream
 from erpchaos.experiment import run_experiment
@@ -53,6 +54,10 @@ recovery_app = typer.Typer(
     help="Run deterministic business recovery experiments after chaos-induced failures.",
     no_args_is_help=True,
 )
+effect_app = typer.Typer(
+    help="Project deterministic net business effects from ordered event streams.",
+    no_args_is_help=True,
+)
 adapter_app = typer.Typer(
     help="Translate ERP-specific activity into vendor-neutral ERPChaos fixtures.",
     no_args_is_help=True,
@@ -70,6 +75,7 @@ app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
 app.add_typer(recovery_app, name="recovery")
+app.add_typer(effect_app, name="effect")
 app.add_typer(adapter_app, name="adapter")
 app.add_typer(incident_app, name="incident")
 console = Console()
@@ -156,13 +162,19 @@ def chaos_run(scenario: Path, stream: Path) -> None:
 
 
 @experiment_app.command("run")
-def experiment_run(contract: Path, scenario: Path, stream: Path) -> None:
-    """Run chaos against an event stream and evaluate the resulting business state."""
+def experiment_run(
+    contract: Path,
+    scenario: Path,
+    stream: Path,
+    effect_map: Path | None = None,
+) -> None:
+    """Run chaos and evaluate history plus optional net business effects."""
     try:
         brc = BusinessReliabilityContract.model_validate(_load_yaml(contract))
         chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
         event_stream = EventStream.model_validate(_load_yaml(stream))
-        result = run_experiment(brc, chaos_scenario, event_stream)
+        effects = EffectMap.model_validate(_load_yaml(effect_map)) if effect_map else None
+        result = run_experiment(brc, chaos_scenario, event_stream, effects)
     except (ValidationError, ValueError) as exc:
         console.print(f"[red]Invalid experiment input:[/red] {exc}")
         raise typer.Exit(code=2) from exc
@@ -188,20 +200,23 @@ def recovery_run(
     stream: Path,
     recovery_contract: Path,
     recovery_scenario: Path,
+    effect_map: Path | None = None,
 ) -> None:
-    """Run chaos, apply compensating events, and score business recovery deterministically."""
+    """Run chaos, compensation, and optional effect-aware business recovery scoring."""
     try:
         brc = BusinessReliabilityContract.model_validate(_load_yaml(contract))
         chaos_scenario = ChaosScenario.model_validate(_load_yaml(scenario))
         event_stream = EventStream.model_validate(_load_yaml(stream))
         recovery_brc = RecoveryContract.model_validate(_load_yaml(recovery_contract))
         recovery = RecoveryScenario.model_validate(_load_yaml(recovery_scenario))
+        effects = EffectMap.model_validate(_load_yaml(effect_map)) if effect_map else None
         result = run_recovery_experiment(
             brc,
             chaos_scenario,
             event_stream,
             recovery_brc,
             recovery,
+            effects,
         )
     except (ValidationError, ValueError) as exc:
         console.print(f"[red]Invalid recovery input:[/red] {exc}")
@@ -234,6 +249,41 @@ def recovery_run(
 
     if not result.passed:
         raise typer.Exit(code=1)
+
+
+@effect_app.command("project")
+def effect_project(stream: Path, effect_map: Path) -> None:
+    """Project an ordered event stream into deterministic Business Effect Ledger balances."""
+    try:
+        event_stream = EventStream.model_validate(_load_yaml(stream))
+        effects = EffectMap.model_validate(_load_yaml(effect_map))
+        state = project_effect_ledger(event_stream.events, effects)
+    except (ValidationError, ValueError) as exc:
+        console.print(f"[red]Invalid effect input:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table(title=f"ERPChaos Business Effect Ledger — {effects.name}")
+    table.add_column("Effect")
+    table.add_column("Balance", justify="right")
+    table.add_column("Min", justify="right")
+    table.add_column("Max", justify="right")
+    table.add_column("Contributions", justify="right")
+    table.add_column("Ever Negative")
+
+    projected = state["effects"]
+    assert isinstance(projected, dict)
+    for effect_name, value in projected.items():
+        assert isinstance(value, dict)
+        table.add_row(
+            effect_name,
+            str(value["balance"]),
+            str(value["min_balance"]),
+            str(value["max_balance"]),
+            str(value["contribution_count"]),
+            "YES" if value["ever_negative"] else "NO",
+        )
+
+    console.print(table)
 
 
 @concurrency_app.command("run")
