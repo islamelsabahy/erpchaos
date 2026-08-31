@@ -60,6 +60,26 @@ jobs:
             echo "Expected ordering invariant failure exit code 1, got $status"
             exit 1
           fi
+      - name: Smoke test business effect ledger
+        run: |
+          erpchaos effect project \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/property-sale.effects.yaml
+      - name: Smoke test effect-aware duplicate-payment detection
+        shell: bash
+        run: |
+          set +e
+          erpchaos experiment run \
+            examples/real-estate/payment-effect.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/property-sale.effects.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected effective-payment failure exit code 1, got $status"
+            exit 1
+          fi
       - name: Smoke test successful business recovery
         run: |
           erpchaos recovery run \
@@ -68,6 +88,15 @@ jobs:
             examples/real-estate/property-sale.events.yaml \
             examples/real-estate/payment-recovery.brc.yaml \
             examples/real-estate/payment-recovered.recovery.yaml
+      - name: Smoke test compensation-aware business recovery
+        run: |
+          erpchaos recovery run \
+            examples/real-estate/property-sale.events.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-effect-recovery.brc.yaml \
+            examples/real-estate/payment-recovered.recovery.yaml \
+            examples/real-estate/property-sale.effects.yaml
       - name: Smoke test recovery regression detection
         shell: bash
         run: |
@@ -82,6 +111,23 @@ jobs:
           set -e
           if [ "$status" -ne 1 ]; then
             echo "Expected regressed recovery exit code 1, got $status"
+            exit 1
+          fi
+      - name: Smoke test effect-aware recovery regression
+        shell: bash
+        run: |
+          set +e
+          erpchaos recovery run \
+            examples/real-estate/property-sale.events.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-effect-recovery.brc.yaml \
+            examples/real-estate/payment-regressed.recovery.yaml \
+            examples/real-estate/property-sale.effects.yaml
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected effect-aware recovery regression exit code 1, got $status"
             exit 1
           fi
       - name: Smoke test safe concurrency
