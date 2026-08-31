@@ -56,20 +56,22 @@ jobs:
       - name: Set reproducible build epoch
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
-      - name: Build release twice
+      - name: Build release twice outside the source tree
         run: |
-          python -m build --outdir dist-a
-          python -m build --outdir dist-b
-          python -m twine check dist-a/* dist-b/*
+          rm -rf /tmp/erpchaos-dist-a /tmp/erpchaos-dist-b
+          python -m build --outdir /tmp/erpchaos-dist-a
+          python -m build --outdir /tmp/erpchaos-dist-b
+          python -m twine check /tmp/erpchaos-dist-a/* /tmp/erpchaos-dist-b/*
 
       - name: Prove wheel bytes and sdist contents are reproducible
         shell: bash
         run: |
           set -euo pipefail
-          cmp dist-a/*.whl dist-b/*.whl
+          cmp /tmp/erpchaos-dist-a/*.whl /tmp/erpchaos-dist-b/*.whl
+          rm -rf /tmp/sdist-a /tmp/sdist-b
           mkdir -p /tmp/sdist-a /tmp/sdist-b
-          tar -xzf dist-a/*.tar.gz -C /tmp/sdist-a
-          tar -xzf dist-b/*.tar.gz -C /tmp/sdist-b
+          tar -xzf /tmp/erpchaos-dist-a/*.tar.gz -C /tmp/sdist-a
+          tar -xzf /tmp/erpchaos-dist-b/*.tar.gz -C /tmp/sdist-b
           diff -ruN /tmp/sdist-a /tmp/sdist-b
 
       - name: Prepare release bundle
@@ -77,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp dist-a/* dist/
+          cp /tmp/erpchaos-dist-a/* dist/
           python -m venv /tmp/erpchaos-release-env
           /tmp/erpchaos-release-env/bin/python -m pip install dist/*.whl
           /tmp/erpchaos-release-env/bin/erpchaos --help >/dev/null
