@@ -33,6 +33,7 @@ from erpchaos.recovery import (
     RecoveryScenario,
     run_recovery_experiment,
 )
+from erpchaos.repair_cli import repair_app
 from erpchaos.replay import replay
 
 app = typer.Typer(
@@ -80,6 +81,7 @@ app.add_typer(chaos_app, name="chaos")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(concurrency_app, name="concurrency")
 app.add_typer(recovery_app, name="recovery")
+app.add_typer(repair_app, name="repair")
 app.add_typer(effect_app, name="effect")
 app.add_typer(lineage_app, name="lineage")
 app.add_typer(adapter_app, name="adapter")
