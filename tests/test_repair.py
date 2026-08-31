@@ -220,6 +220,23 @@ def test_catalog_rejects_duplicate_candidate_names() -> None:
         )
 
 
+def test_catalog_rejects_search_space_over_budget() -> None:
+    with pytest.raises(ValidationError, match="search space exceeds max_evaluations"):
+        RepairCatalog.model_validate(
+            {
+                "schema": "erpchaos.repair-catalog.v1",
+                "name": "Oversized search",
+                "max_plan_length": 3,
+                "max_evaluations": 5,
+                "candidates": [
+                    {"name": "one", "event_type": "repair.one"},
+                    {"name": "two", "event_type": "repair.two"},
+                    {"name": "three", "event_type": "repair.three"},
+                ],
+            }
+        )
+
+
 def test_repair_synthesis_rejects_non_failing_chaos() -> None:
     healthy_contract = BusinessReliabilityContract.model_validate(
         {
