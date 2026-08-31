@@ -91,3 +91,64 @@ jobs:
           for stream in document['streams']:
               EventStream.model_validate(stream)
           PY
+
+  action-smoke:
+    name: composite action contract
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Action verify pass
+        id: verify-pass
+        uses: ./
+        with:
+          mode: verify
+          contract: examples/real-estate/property-sale.brc.yaml
+          state: examples/real-estate/healthy-state.yaml
+
+      - name: Assert pass outputs
+        env:
+          STATUS: ${{ steps.verify-pass.outputs.status }}
+          EXIT_CODE: ${{ steps.verify-pass.outputs.exit-code }}
+        run: |
+          test "$STATUS" = "PASS"
+          test "$EXIT_CODE" = "0"
+
+      - name: Action business failure
+        id: business-failure
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: experiment
+          contract: examples/real-estate/property-sale.events.brc.yaml
+          scenario: examples/real-estate/duplicate-payment.scenario.yaml
+          stream: examples/real-estate/property-sale.events.yaml
+
+      - name: Assert business failure contract
+        env:
+          OUTCOME: ${{ steps.business-failure.outcome }}
+          STATUS: ${{ steps.business-failure.outputs.status }}
+          EXIT_CODE: ${{ steps.business-failure.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$STATUS" = "BUSINESS_FAILURE"
+          test "$EXIT_CODE" = "1"
+
+      - name: Action invalid input
+        id: invalid-input
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: verify
+          contract: examples/real-estate/property-sale.brc.yaml
+
+      - name: Assert invalid-input contract
+        env:
+          OUTCOME: ${{ steps.invalid-input.outcome }}
+          STATUS: ${{ steps.invalid-input.outputs.status }}
+          EXIT_CODE: ${{ steps.invalid-input.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$STATUS" = "INVALID_INPUT"
+          test "$EXIT_CODE" = "2"
