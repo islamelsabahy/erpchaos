@@ -1,0 +1,42 @@
+name: Single reservation winner
+resource_key: unit:A-203
+success_event_type: reservation.succeeded
+max_successes: 1
+streams:
+  - transaction_id: reservation-A
+    events:
+      - event_id: A-1
+        event_type: reservation.requested
+        payload:
+          unit_id: A-203
+      - event_id: A-2
+        event_type: inventory.checked
+        payload:
+          unit_id: A-203
+          available: true
+      - event_id: A-3
+        event_type: reservation.succeeded
+        payload:
+          unit_id: A-203
+  - transaction_id: reservation-B
+    events:
+      - event_id: B-1
+        event_type: reservation.requested
+        payload:
+          unit_id: A-203
+      - event_id: B-2
+        event_type: inventory.checked
+        payload:
+          unit_id: A-203
+          available: false
+      - event_id: B-3
+        event_type: reservation.rejected
+        payload:
+          unit_id: A-203
+schedule:
+  - reservation-A
+  - reservation-B
+  - reservation-A
+  - reservation-B
+  - reservation-A
+  - reservation-B
