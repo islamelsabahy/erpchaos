@@ -23,7 +23,8 @@ def test_external_github_actions_are_pinned_to_full_commit_shas() -> None:
 
     mutable_references: list[str] = []
     for path in files:
-        for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line_number, raw_line in enumerate(lines, start=1):
             line = raw_line.strip()
             if not line.startswith("uses:") and " uses:" not in raw_line:
                 continue
