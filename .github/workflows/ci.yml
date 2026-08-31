@@ -74,3 +74,20 @@ jobs:
             echo "Expected concurrency exclusivity failure exit code 1, got $status"
             exit 1
           fi
+      - name: Smoke test safe Odoo translation
+        run: |
+          erpchaos adapter odoo translate \
+            examples/odoo/property-sale.export.yaml \
+            /tmp/odoo-event-streams.yaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          from erpchaos.events import EventStream
+
+          text = Path('/tmp/odoo-event-streams.yaml').read_text(encoding='utf-8')
+          document = yaml.safe_load(text)
+          assert document['schema'] == 'erpchaos.event-stream-export.v1'
+          assert 'DEMO-SALE-001' not in text
+          for stream in document['streams']:
+              EventStream.model_validate(stream)
+          PY
