@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.effects import EffectMap
+from erpchaos.evidence import build_evidence, write_evidence
 from erpchaos.events import EventStream
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
@@ -46,6 +47,10 @@ def repair_synthesize(
     lineage_policy: Annotated[
         Path | None,
         typer.Option("--lineage-policy", help="Optional compensation lineage policy YAML."),
+    ] = None,
+    evidence_output: Annotated[
+        Path | None,
+        typer.Option("--evidence", help="Write deterministic Business Reliability Evidence JSON."),
     ] = None,
 ) -> None:
     """Synthesize the first minimal repair plan that restores recovery invariants."""
@@ -107,6 +112,33 @@ def repair_synthesize(
     console.print(f"Searched Plans: [bold]{result.searched_plan_count}[/bold]")
     console.print(f"Selected Plan Length: [bold]{plan_length}[/bold]")
     console.print(f"Recovery Reliability Score: [bold]{result.score}/100[/bold]")
+
+    if evidence_output is not None:
+        input_paths = {
+            "contract": contract,
+            "scenario": scenario,
+            "stream": stream,
+            "recovery_contract": recovery_contract,
+            "catalog": catalog,
+        }
+        if effect_map is not None:
+            input_paths["effect_map"] = effect_map
+        if lineage_policy is not None:
+            input_paths["lineage_policy"] = lineage_policy
+        evidence = build_evidence(
+            mode="repair",
+            status=result.status.value,
+            input_paths=input_paths,
+            result={
+                "score": result.score,
+                "searched_plan_count": result.searched_plan_count,
+                "selected_candidate_names": result.selected_candidate_names,
+                "plan_length": result.plan_length,
+            },
+            invariants=result.invariant_results,
+        )
+        write_evidence(evidence_output, evidence)
+        console.print(f"Evidence: [bold]{evidence_output}[/bold]")
 
     if not result.passed:
         raise typer.Exit(code=1)
