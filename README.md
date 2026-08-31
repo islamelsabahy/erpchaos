@@ -2,7 +2,7 @@
 
 > **Your infrastructure can be green while your business is broken.**
 
-ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, and other failure modes that can leave technically healthy systems in financially or operationally invalid states.
+ERPChaos is an open-source experiment in **Business Transaction Chaos Engineering**: deterministic testing of ERP and business workflows under duplicate events, dropped events, delayed processing, out-of-order delivery, partial failures, retries, and competing transactions that can leave technically healthy systems in financially or operationally invalid states.
 
 ERPChaos is not an AI chatbot, a generic ERP test runner, or a security scanner. Its core idea is to treat **business invariants as executable reliability contracts** and business event streams as reproducible chaos experiments.
 
@@ -14,7 +14,7 @@ ERPChaos asks whether the **business transaction remains correct** when failure 
 
 Examples:
 
-- Can one property be sold twice during concurrent reservations?
+- Can two users reserve the same property at the same time?
 - Can a retry create duplicate payments or commissions?
 - Can payment happen before finance approval while every event still exists?
 - Can a sold unit accidentally return to available state?
@@ -92,9 +92,32 @@ Counts alone are not enough. A transaction can contain all required events and s
 
 A `reorder_event` fault can move payment ahead of finance approval while preserving every event count. ERPChaos detects that semantic failure through the ordering invariant.
 
+### Deterministic concurrency
+
+ERPChaos can also model multiple transactions competing for the same business resource. Concurrency schedules are explicit rather than random, so a race can be replayed exactly in CI.
+
+```yaml
+name: Double reservation race
+resource_key: unit:A-203
+success_event_type: reservation.succeeded
+max_successes: 1
+streams:
+  - transaction_id: reservation-A
+    events: [...]
+  - transaction_id: reservation-B
+    events: [...]
+schedule:
+  - reservation-A
+  - reservation-B
+  - reservation-A
+  - reservation-B
+```
+
+Each schedule entry consumes the next event from that transaction. If both transactions emit `reservation.succeeded` while `max_successes` is `1`, ERPChaos reports a **Business Race Condition** and fails with exit code `1`.
+
 ### Chaos experiment
 
-An experiment closes the reliability loop:
+A standard chaos experiment closes the single-transaction reliability loop:
 
 ```text
 Event Stream
@@ -110,13 +133,24 @@ BRC Evaluation
 Business Reliability Score
 ```
 
+A concurrency experiment evaluates a shared-resource race:
+
+```text
+Transaction A ----\
+                   > Deterministic Interleaving -> Exclusivity Check -> BRS
+Transaction B ----/
+                           |
+                     Shared Resource
+                       unit:A-203
+```
+
 ### Deterministic by design
 
-LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks and chaos experiments stay deterministic, reproducible, and suitable for CI/CD.
+LLMs may eventually help generate scenarios or explain failures, but **AI never decides pass/fail or mutates production systems**. Reliability checks, replay, and concurrency experiments stay deterministic, reproducible, and suitable for CI/CD.
 
 ## Current alpha
 
-`v0.4.0-alpha` provides:
+`v0.5.0-alpha` provides:
 
 - Business Reliability Contract model
 - Deterministic invariant evaluator
@@ -127,8 +161,11 @@ LLMs may eventually help generate scenarios or explain failures, but **AI never 
 - Ordered transaction replay engine
 - Deterministic event-history projection
 - End-to-end post-chaos BRC evaluation
-- CLI verification, replay, and experiment commands
-- Real-estate duplicate-payment and early-payment scenarios
+- Deterministic competing-transaction interleaving
+- Shared-resource exclusivity evaluation
+- Business Race Condition detection
+- CLI verification, replay, experiment, and concurrency commands
+- Real-estate duplicate-payment, early-payment, and double-reservation scenarios
 - Automated tests
 - GitHub Actions CI across Python 3.11 and 3.12
 
@@ -176,7 +213,21 @@ erpchaos experiment run \
   examples/real-estate/property-sale.events.yaml
 ```
 
-Both experiments exit with code `1`, but for different business reasons: one violates idempotency, while the other violates transaction ordering. That makes ERPChaos usable as a business-correctness deployment gate in CI/CD.
+Run a safe single-winner reservation race:
+
+```bash
+erpchaos concurrency run \
+  examples/real-estate/single-winner.concurrent.yaml
+```
+
+Detect a double-reservation race:
+
+```bash
+erpchaos concurrency run \
+  examples/real-estate/double-reservation.concurrent.yaml
+```
+
+The double-reservation command exits with code `1` because two competing transactions succeeded against one resource where only one success is allowed. Invalid configuration uses exit code `2`.
 
 ## Architecture direction
 
@@ -189,10 +240,13 @@ The core stays vendor-neutral:
 ERP Event Stream -> Chaos -> Replay -> Projection -> Invariant Engine
                      |                         |             |
                    Faults                  State Model      BRS
-                     ^
-                     |
-             ERP Adapter Boundary
-        Odoo / REST / Webhook / future adapters
+
+Competing Event Streams -> Deterministic Scheduler -> Exclusivity Engine
+                                  |                    |
+                           Shared Resource             BRS
+
+                     ERP Adapter Boundary
+              Odoo / REST / Webhook / future adapters
 ```
 
 Vendor-specific ERP integrations will translate external activity into ERPChaos event streams and execute only inside explicitly controlled test environments.
@@ -201,16 +255,14 @@ Vendor-specific ERP integrations will translate external activity into ERPChaos 
 
 Planned work includes:
 
-- concurrency experiments
-- richer history-aware invariants
+- richer shared-resource and history-aware invariants
 - generic REST and webhook adapters
-- Odoo adapter
+- safe Odoo adapter
 - BRC schema versioning
 - recovery scoring
-- incident replay fixtures
+- anonymized incident replay fixtures
 - GitHub Action packaging
 - OpenTelemetry correlation
-- anonymization tooling for production-derived fixtures
 
 ## Project principles
 
@@ -221,6 +273,7 @@ Planned work includes:
 5. Vendor-specific ERP behavior belongs behind adapters.
 6. Every new failure mode should be reproducible in CI.
 7. Chaos execution must default to safe, non-production environments.
+8. Concurrency schedules must be reproducible rather than timing-dependent.
 
 ## Status
 
