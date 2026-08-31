@@ -217,8 +217,8 @@ def _apply_action(
     if action is SanitizationAction.tokenize:
         return _pseudonym(f"field:{path}", _canonical_value(value), pseudonym_key, prefix="token")
 
-    if isinstance(value, dict):
-        raise ValueError(f"keep action is not allowed for nested object field: {path}")
+    if isinstance(value, (dict, list, tuple, set)):
+        raise ValueError(f"keep action is only allowed for scalar fields: {path}")
     if pii_detection and (_is_pii_path(path) or _contains_pii(value)):
         raise ValueError(f"keep action would expose detected PII at field: {path}")
     return value
