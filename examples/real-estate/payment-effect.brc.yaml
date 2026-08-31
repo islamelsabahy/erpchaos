@@ -1,0 +1,17 @@
+name: Effective Payment Reliability Contract
+version: "1"
+transaction: property-sale-effective-payment
+description: Verify the net payment business effect rather than raw callback count alone.
+invariants:
+  - name: one-effective-payment
+    description: A valid property sale must retain exactly one effective payment.
+    path: effects.payment.balance
+    operator: equals
+    expected: 1
+    severity: critical
+  - name: payment-effect-never-negative
+    description: The payment effect must never become negative during the transaction timeline.
+    path: effects.payment.ever_negative
+    operator: equals
+    expected: false
+    severity: high
