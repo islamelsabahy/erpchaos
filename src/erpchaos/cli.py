@@ -16,7 +16,10 @@ from erpchaos.models import BusinessReliabilityContract
 from erpchaos.replay import replay
 
 app = typer.Typer(help="Chaos engineering for ERP and business transactions.", no_args_is_help=True)
-chaos_app = typer.Typer(help="Run deterministic business transaction chaos scenarios.", no_args_is_help=True)
+chaos_app = typer.Typer(
+    help="Run deterministic business transaction chaos scenarios.",
+    no_args_is_help=True,
+)
 app.add_typer(chaos_app, name="chaos")
 console = Console()
 
