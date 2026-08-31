@@ -10,6 +10,7 @@ from rich.console import Console
 
 from erpchaos.effects import EffectMap
 from erpchaos.engine import verify_contract
+from erpchaos.events import EventStream
 from erpchaos.evidence import (
     evidence_for_experiment,
     evidence_for_recovery,
@@ -18,7 +19,6 @@ from erpchaos.evidence import (
     verify_evidence,
     write_evidence,
 )
-from erpchaos.events import EventStream
 from erpchaos.experiment import run_experiment
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
