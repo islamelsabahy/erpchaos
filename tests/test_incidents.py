@@ -137,6 +137,17 @@ def test_keep_action_fails_closed_on_detected_pii() -> None:
         sanitize_event_stream(_stream(), policy, _TEST_KEY)
 
 
+def test_keep_action_rejects_collection_values() -> None:
+    stream = _stream()
+    stream.events[0].payload["watchers"] = ["observer@example.test"]
+    payload = _policy().model_dump(mode="json")
+    payload["rules"].append({"path": "watchers", "action": "keep"})
+    policy = IncidentSanitizationPolicy.model_validate(payload)
+
+    with pytest.raises(ValueError, match="only allowed for scalar fields"):
+        sanitize_event_stream(stream, policy, _TEST_KEY)
+
+
 def test_validator_rejects_raw_pii_leak() -> None:
     sanitized = sanitize_event_stream(_stream(), _policy(), _TEST_KEY).stream
     sanitized.events[0].payload["customer_email"] = "leak@example.test"
