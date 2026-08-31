@@ -1,0 +1,6 @@
+name: Log duplicate payment without compensation
+events:
+  - event_id: audit.logged
+    event_type: audit.logged
+    payload:
+      reason: duplicate-payment-detected
