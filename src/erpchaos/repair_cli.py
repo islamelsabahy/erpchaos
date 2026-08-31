@@ -10,8 +10,8 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.effects import EffectMap
-from erpchaos.evidence import evidence_for_repair, write_evidence
 from erpchaos.events import EventStream
+from erpchaos.evidence import evidence_for_repair, write_evidence
 from erpchaos.faults import ChaosScenario
 from erpchaos.lineage import EffectLineagePolicy
 from erpchaos.models import BusinessReliabilityContract
