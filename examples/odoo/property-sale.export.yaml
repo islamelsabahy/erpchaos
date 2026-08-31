@@ -1,0 +1,67 @@
+config:
+  environment: staging
+  base_url: https://odoo-staging.example.test
+  database: erpchaos_demo
+  read_only: true
+mappings:
+  - model: sale.order
+    operation: reserve
+    event_type: reservation.requested
+    transaction_field: transaction_ref
+    payload_fields:
+      - unit_ref
+      - state
+  - model: sale.order
+    operation: finance_approve
+    event_type: finance.approved
+    transaction_field: transaction_ref
+    payload_fields:
+      - unit_ref
+      - state
+  - model: account.payment
+    operation: create
+    event_type: payment.received
+    transaction_field: transaction_ref
+    payload_fields:
+      - unit_ref
+      - amount
+      - currency
+  - model: sale.order
+    operation: mark_sold
+    event_type: unit.sold
+    transaction_field: transaction_ref
+    payload_fields:
+      - unit_ref
+      - state
+activities:
+  - activity_id: demo-activity-001
+    model: sale.order
+    operation: reserve
+    values:
+      transaction_ref: DEMO-SALE-001
+      unit_ref: UNIT-A-203
+      state: reserved
+      internal_note: not exported
+  - activity_id: demo-activity-002
+    model: sale.order
+    operation: finance_approve
+    values:
+      transaction_ref: DEMO-SALE-001
+      unit_ref: UNIT-A-203
+      state: finance_approved
+  - activity_id: demo-activity-003
+    model: account.payment
+    operation: create
+    values:
+      transaction_ref: DEMO-SALE-001
+      unit_ref: UNIT-A-203
+      amount: 100000
+      currency: EGP
+      internal_reference: not exported
+  - activity_id: demo-activity-004
+    model: sale.order
+    operation: mark_sold
+    values:
+      transaction_ref: DEMO-SALE-001
+      unit_ref: UNIT-A-203
+      state: sold
