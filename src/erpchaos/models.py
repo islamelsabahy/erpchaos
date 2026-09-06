@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class Severity(StrEnum):
@@ -39,12 +39,6 @@ class Invariant(BaseModel):
 
 
 class BusinessReliabilityContract(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    schema_version: Literal["erpchaos.brc.v1"] = Field(
-        default="erpchaos.brc.v1",
-        alias="schema",
-    )
     name: str
     version: str = "1"
     transaction: str
