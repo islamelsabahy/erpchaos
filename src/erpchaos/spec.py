@@ -32,8 +32,10 @@ class CompatibilityStatus(StrEnum):
 
 
 class SpecInspection(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     kind: DocumentKind
-    schema: str
+    schema_version: str = Field(alias="schema")
     legacy_implicit_schema: bool
     name: str | None = None
 
@@ -98,6 +100,8 @@ _SCHEMA_REGISTRY: dict[str, _SchemaDescriptor] = {
     ),
 }
 
+_CONTRACT_KINDS = {DocumentKind.brc, DocumentKind.recovery_contract}
+
 
 def registered_schemas() -> tuple[str, ...]:
     return tuple(sorted(_SCHEMA_REGISTRY))
@@ -105,14 +109,18 @@ def registered_schemas() -> tuple[str, ...]:
 
 def validate_spec(data: dict[str, Any]) -> ValidatedSpec:
     descriptor, legacy = _resolve_descriptor(data)
-    model = descriptor.model.model_validate(data)
-    canonical = cast(
-        dict[str, Any],
-        model.model_dump(mode="json", by_alias=True, exclude_none=True),
-    )
+    validation_data = dict(data)
+    if descriptor.kind in _CONTRACT_KINDS:
+        validation_data.pop("schema", None)
+
+    model = descriptor.model.model_validate(validation_data)
+    canonical = model.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if descriptor.kind in _CONTRACT_KINDS:
+        canonical = {"schema": descriptor.schema, **canonical}
+
     inspection = SpecInspection(
         kind=descriptor.kind,
-        schema=descriptor.schema,
+        schema_version=descriptor.schema,
         legacy_implicit_schema=legacy,
         name=_document_name(model),
     )
@@ -142,19 +150,22 @@ def compare_specs(old_data: dict[str, Any], new_data: dict[str, Any]) -> Compati
             ],
         )
 
-    if old.inspection.schema != new.inspection.schema:
+    if old.inspection.schema_version != new.inspection.schema_version:
         return _report(
             old,
             new,
             CompatibilityStatus.incompatible,
-            [f"schema changed: {old.inspection.schema} -> {new.inspection.schema}"],
+            [
+                "schema changed: "
+                f"{old.inspection.schema_version} -> {new.inspection.schema_version}"
+            ],
         )
 
     if old.canonical == new.canonical:
         return _report(old, new, CompatibilityStatus.exact, [])
 
     kind = old.inspection.kind
-    if kind in {DocumentKind.brc, DocumentKind.recovery_contract}:
+    if kind in _CONTRACT_KINDS:
         return _compare_contracts(old, new)
     if kind is DocumentKind.effect_map:
         return _compare_effect_maps(old, new)
