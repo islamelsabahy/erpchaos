@@ -1,0 +1,72 @@
+name: Required Evidence Consistency
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: consistency inputs (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Generate deterministic evidence and spec report
+        run: |
+          mkdir -p /tmp/consistency
+          erpchaos repair synthesize \
+            examples/real-estate/payment-effect.brc.yaml \
+            examples/real-estate/duplicate-payment.scenario.yaml \
+            examples/real-estate/property-sale.events.yaml \
+            examples/real-estate/payment-lineage-recovery.brc.yaml \
+            examples/real-estate/payment-repair.catalog.yaml \
+            --effect-map examples/real-estate/property-sale.effects.yaml \
+            --lineage-policy examples/real-estate/property-sale.lineage.yaml \
+            --evidence /tmp/consistency/repair-evidence.json
+          erpchaos evidence verify /tmp/consistency/repair-evidence.json
+          erpchaos spec compare \
+            examples/real-estate/property-sale.effects.yaml \
+            examples/spec/property-sale.effects.additive.yaml \
+            --json > /tmp/consistency/spec-compatibility.json
+      - name: Upload consistency inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: required-consistency-${{ matrix.python-version }}
+          path: /tmp/consistency/
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence-consistency:
+    name: evidence byte consistency
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download consistency inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: required-consistency-*
+          path: consistency
+          merge-multiple: false
+      - name: Compare Python 3.11 and 3.12 bytes
+        run: |
+          cmp \
+            consistency/required-consistency-3.11/repair-evidence.json \
+            consistency/required-consistency-3.12/repair-evidence.json
+          cmp \
+            consistency/required-consistency-3.11/spec-compatibility.json \
+            consistency/required-consistency-3.12/spec-compatibility.json
+          sha256sum consistency/required-consistency-*/*.json
