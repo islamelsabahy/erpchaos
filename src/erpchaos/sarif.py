@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from erpchaos import __version__
+import erpchaos
 from erpchaos.models import Severity
 from erpchaos.policy import Finding
 
@@ -70,7 +70,7 @@ def render_sarif(findings: list[Finding]) -> dict[str, Any]:
                     "driver": {
                         "name": "ERPChaos",
                         "informationUri": "https://github.com/islamelsabahy/erpchaos",
-                        "semanticVersion": __version__,
+                        "semanticVersion": erpchaos.__version__,
                         "rules": rules,
                     }
                 },
