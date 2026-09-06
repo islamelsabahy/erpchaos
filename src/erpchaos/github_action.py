@@ -7,7 +7,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-VALID_MODES = {"verify", "chaos", "experiment"}
+VALID_MODES = {"verify", "chaos", "experiment", "policy"}
 
 
 def build_cli_args(values: Mapping[str, str]) -> list[str]:
@@ -28,17 +28,30 @@ def build_cli_args(values: Mapping[str, str]) -> list[str]:
         stream = _required_file(values, "stream", mode)
         return ["chaos", "run", str(scenario), str(stream)]
 
+    if mode == "policy":
+        contract = _required_file(values, "contract", mode)
+        state = _required_file(values, "state", mode)
+        policy = _required_file(values, "policy", mode)
+        args = ["policy", "evaluate", str(contract), str(state), str(policy)]
+        findings_output = values.get("findings_output", "").strip()
+        sarif_output = values.get("sarif_output", "").strip()
+        if findings_output:
+            args.extend(["--findings-output", findings_output])
+        if sarif_output:
+            args.extend(["--sarif-output", sarif_output])
+        return args
+
     contract = _required_file(values, "contract", mode)
     scenario = _required_file(values, "scenario", mode)
     stream = _required_file(values, "stream", mode)
     return ["experiment", "run", str(contract), str(scenario), str(stream)]
 
 
-def classify_exit_code(exit_code: int) -> str:
+def classify_exit_code(exit_code: int, mode: str = "") -> str:
     if exit_code == 0:
         return "PASS"
     if exit_code == 1:
-        return "BUSINESS_FAILURE"
+        return "POLICY_FAILURE" if mode == "policy" else "BUSINESS_FAILURE"
     if exit_code == 2:
         return "INVALID_INPUT"
     return "EXECUTION_ERROR"
@@ -51,6 +64,9 @@ def main() -> int:
         "state": os.environ.get("ERPCHAOS_ACTION_STATE", ""),
         "scenario": os.environ.get("ERPCHAOS_ACTION_SCENARIO", ""),
         "stream": os.environ.get("ERPCHAOS_ACTION_STREAM", ""),
+        "policy": os.environ.get("ERPCHAOS_ACTION_POLICY", ""),
+        "findings_output": os.environ.get("ERPCHAOS_ACTION_FINDINGS_OUTPUT", ""),
+        "sarif_output": os.environ.get("ERPCHAOS_ACTION_SARIF_OUTPUT", ""),
     }
     mode = values["mode"].strip().lower() or "unknown"
 
@@ -63,13 +79,13 @@ def main() -> int:
         return 2
 
     completed = subprocess.run(
-        [sys.executable, "-m", "erpchaos.cli", *cli_args],
+        [sys.executable, "-m", "erpchaos.root_cli", *cli_args],
         capture_output=True,
         text=True,
         check=False,
     )
     combined_output = _emit_cli_output(completed.stdout, completed.stderr)
-    status = classify_exit_code(completed.returncode)
+    status = classify_exit_code(completed.returncode, mode)
     _publish_result(mode, status, completed.returncode, combined_output)
     return completed.returncode
 
