@@ -8,3 +8,6 @@ from erpchaos.spec_cli import spec_app
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(policy_app, name="policy")
 app.add_typer(spec_app, name="spec")
+
+if __name__ == "__main__":
+    app()
