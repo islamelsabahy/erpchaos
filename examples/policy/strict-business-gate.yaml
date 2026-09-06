@@ -1,0 +1,4 @@
+schema: erpchaos.policy-gate.v1
+name: Strict Business Reliability Gate
+fail_on_or_above: high
+ignored_rule_ids: []
