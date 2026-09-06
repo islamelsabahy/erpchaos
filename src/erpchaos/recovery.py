@@ -19,6 +19,10 @@ from erpchaos.projection import project_business_state
 class RecoveryContract(BusinessReliabilityContract):
     """Business invariants that must become true after deterministic compensation."""
 
+    schema_version: Literal["erpchaos.recovery-contract.v1"] = Field(
+        default="erpchaos.recovery-contract.v1",
+        alias="schema",
+    )
     contract_type: Literal["recovery"] = "recovery"
 
 
