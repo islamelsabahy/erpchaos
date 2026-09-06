@@ -1,0 +1,8 @@
+unit:
+  sold_transitions: 1
+payment:
+  posted_records: 2
+commission:
+  records: 2
+finance:
+  approved: true
