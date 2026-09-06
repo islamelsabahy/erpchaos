@@ -62,8 +62,10 @@ jobs:
           /tmp/erpchaos-package-test/bin/python -m pip install /tmp/erpchaos-dist-a/*.whl
           /tmp/erpchaos-package-test/bin/erpchaos --help >/dev/null
           /tmp/erpchaos-package-test/bin/python - <<'PY'
+          from importlib.metadata import version
           import erpchaos
-          assert erpchaos.__version__ == "0.14.0a0"
+
+          assert erpchaos.__version__ == version("erpchaos")
           PY
 
       - name: Prepare build artifact
