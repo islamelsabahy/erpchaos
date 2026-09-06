@@ -7,7 +7,6 @@ from typing import Any
 from erpchaos.models import Severity
 from erpchaos.policy import Finding
 
-
 _SARIF_LEVEL = {
     Severity.low: "note",
     Severity.medium: "warning",
