@@ -1,0 +1,12 @@
+schema: erpchaos.effect-map.v1
+name: Property sale business effects breaking change
+
+effects:
+  payment:
+    contributions:
+      payment.received: 2
+      payment.reversed: -1
+  commission:
+    contributions:
+      commission.created: 1
+      commission.voided: -1

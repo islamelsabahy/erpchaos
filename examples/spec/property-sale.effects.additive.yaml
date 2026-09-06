@@ -1,0 +1,15 @@
+schema: erpchaos.effect-map.v1
+name: Property sale business effects with reservation
+
+effects:
+  payment:
+    contributions:
+      payment.received: 1
+      payment.reversed: -1
+  commission:
+    contributions:
+      commission.created: 1
+      commission.voided: -1
+  reservation:
+    contributions:
+      reservation.created: 1

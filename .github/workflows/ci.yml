@@ -175,10 +175,11 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          import erpchaos
 
           payload = json.loads(Path('/tmp/repair-evidence.json').read_text(encoding='utf-8'))
           assert payload['schema'] == 'erpchaos.evidence.v1'
-          assert payload['tool_version'] == '0.14.0a0'
+          assert payload['tool_version'] == erpchaos.__version__
           assert payload['mode'] == 'repair'
           assert payload['status'] == 'REPAIR_FOUND'
           assert payload['result']['score'] == 100
@@ -212,6 +213,52 @@ jobs:
         with:
           name: reliability-evidence-${{ matrix.python-version }}
           path: /tmp/repair-evidence.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Validate and normalize specification documents
+        run: |
+          erpchaos spec validate examples/real-estate/property-sale.events.brc.yaml
+          erpchaos spec normalize \
+            examples/real-estate/property-sale.events.brc.yaml \
+            --output /tmp/property-sale.normalized.brc.yaml
+          erpchaos spec validate /tmp/property-sale.normalized.brc.yaml
+          erpchaos spec inspect \
+            examples/real-estate/property-sale.effects.yaml \
+            --json
+      - name: Generate deterministic specification compatibility report
+        run: |
+          erpchaos spec compare \
+            examples/real-estate/property-sale.effects.yaml \
+            examples/spec/property-sale.effects.additive.yaml \
+            --json > /tmp/spec-compatibility.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/spec-compatibility.json').read_text(encoding='utf-8'))
+          assert payload['schema'] == 'erpchaos.spec-compatibility.v1'
+          assert payload['status'] == 'BACKWARD_COMPATIBLE'
+          assert payload['reasons'] == ['effect added: reservation']
+          PY
+      - name: Smoke test incompatible specification detection
+        shell: bash
+        run: |
+          set +e
+          erpchaos spec compare \
+            examples/real-estate/property-sale.effects.yaml \
+            examples/spec/property-sale.effects.breaking.yaml \
+            --json
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected incompatible specification exit code 1, got $status"
+            exit 1
+          fi
+      - name: Upload deterministic specification report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: spec-compatibility-${{ matrix.python-version }}
+          path: /tmp/spec-compatibility.json
           if-no-files-found: error
           retention-days: 7
       - name: Smoke test recovery regression detection
@@ -301,7 +348,7 @@ jobs:
           PY
 
   evidence-consistency:
-    name: evidence byte consistency
+    name: evidence and spec byte consistency
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -318,6 +365,18 @@ jobs:
             evidence/reliability-evidence-3.11/repair-evidence.json \
             evidence/reliability-evidence-3.12/repair-evidence.json
           sha256sum evidence/reliability-evidence-*/repair-evidence.json
+      - name: Download specification compatibility artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: spec-compatibility-*
+          path: spec
+          merge-multiple: false
+      - name: Compare Python 3.11 and 3.12 specification report bytes
+        run: |
+          cmp \
+            spec/spec-compatibility-3.11/spec-compatibility.json \
+            spec/spec-compatibility-3.12/spec-compatibility.json
+          sha256sum spec/spec-compatibility-*/spec-compatibility.json
 
   action-smoke:
     name: composite action contract
