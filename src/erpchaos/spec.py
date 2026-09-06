@@ -120,7 +120,7 @@ def validate_spec(data: dict[str, Any]) -> ValidatedSpec:
 
     inspection = SpecInspection(
         kind=descriptor.kind,
-        schema_version=descriptor.schema,
+        schema=descriptor.schema,
         legacy_implicit_schema=legacy,
         name=_document_name(model),
     )
