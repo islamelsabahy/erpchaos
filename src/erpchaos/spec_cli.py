@@ -71,7 +71,9 @@ def inspect_command(
 
     if json_output:
         typer.echo(
-            _inspection_json(inspection.model_dump(mode="json", exclude_none=True)),
+            _inspection_json(
+                inspection.model_dump(mode="json", by_alias=True, exclude_none=True)
+            ),
             nl=False,
         )
         return
@@ -80,7 +82,7 @@ def inspect_command(
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Kind", inspection.kind.value)
-    table.add_row("Schema", inspection.schema)
+    table.add_row("Schema", inspection.schema_version)
     table.add_row("Legacy implicit schema", "YES" if inspection.legacy_implicit_schema else "NO")
     table.add_row("Name", inspection.name or "-")
     console.print(table)
@@ -106,7 +108,7 @@ def validate_command(
         "kind": inspection.kind.value,
         "legacy_implicit_schema": inspection.legacy_implicit_schema,
         "name": inspection.name,
-        "schema": inspection.schema,
+        "schema": inspection.schema_version,
         "valid": True,
     }
     if json_output:
@@ -115,7 +117,7 @@ def validate_command(
 
     console.print("Specification validation: [bold]PASS[/bold]")
     console.print(f"Kind: [bold]{inspection.kind.value}[/bold]")
-    console.print(f"Schema: [bold]{inspection.schema}[/bold]")
+    console.print(f"Schema: [bold]{inspection.schema_version}[/bold]")
 
 
 @spec_app.command("normalize")
@@ -169,7 +171,7 @@ def compare_command(
         table.add_column("Old")
         table.add_column("New")
         table.add_row("Kind", report.old.kind.value, report.new.kind.value)
-        table.add_row("Schema", report.old.schema, report.new.schema)
+        table.add_row("Schema", report.old.schema_version, report.new.schema_version)
         table.add_row("Name", report.old.name or "-", report.new.name or "-")
         console.print(table)
         console.print(f"Compatibility: [bold]{report.status.value}[/bold]")
