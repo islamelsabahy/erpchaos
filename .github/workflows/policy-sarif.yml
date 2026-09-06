@@ -101,3 +101,45 @@ jobs:
             policy/policy-outputs-3.11/policy-results.sarif \
             policy/policy-outputs-3.12/policy-results.sarif
           sha256sum policy/policy-outputs-*/*
+
+  action-policy:
+    name: composite action policy contract
+    needs: consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run local policy Action
+        id: policy-failure
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: policy
+          contract: examples/real-estate/property-sale.brc.yaml
+          state: examples/real-estate/policy-failing-state.synthetic.yaml
+          policy: examples/policy/strict-business-gate.yaml
+          findings-output: .erpchaos/findings.json
+          sarif-output: .erpchaos/results.sarif
+
+      - name: Assert policy Action contract
+        env:
+          OUTCOME: ${{ steps.policy-failure.outcome }}
+          STATUS: ${{ steps.policy-failure.outputs.status }}
+          EXIT_CODE: ${{ steps.policy-failure.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$STATUS" = "POLICY_FAILURE"
+          test "$EXIT_CODE" = "1"
+          test -s .erpchaos/findings.json
+          test -s .erpchaos/results.sarif
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          findings = json.loads(Path('.erpchaos/findings.json').read_text(encoding='utf-8'))
+          sarif = json.loads(Path('.erpchaos/results.sarif').read_text(encoding='utf-8'))
+          assert findings['schema'] == 'erpchaos.findings.v1'
+          assert sarif['version'] == '2.1.0'
+          PY
