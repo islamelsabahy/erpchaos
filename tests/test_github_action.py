@@ -57,6 +57,37 @@ def test_build_experiment_cli_args(tmp_path: Path) -> None:
     ]
 
 
+def test_build_policy_cli_args(tmp_path: Path) -> None:
+    contract = _file(tmp_path, "contract.yaml")
+    state = _file(tmp_path, "state.yaml")
+    policy = _file(tmp_path, "policy.yaml")
+    findings = tmp_path / "findings.json"
+    sarif = tmp_path / "results.sarif"
+
+    args = github_action.build_cli_args(
+        {
+            "mode": "policy",
+            "contract": str(contract),
+            "state": str(state),
+            "policy": str(policy),
+            "findings_output": str(findings),
+            "sarif_output": str(sarif),
+        }
+    )
+
+    assert args == [
+        "policy",
+        "evaluate",
+        str(contract),
+        str(state),
+        str(policy),
+        "--findings-output",
+        str(findings),
+        "--sarif-output",
+        str(sarif),
+    ]
+
+
 def test_action_rejects_unknown_mode() -> None:
     with pytest.raises(ValueError, match="mode must be one of"):
         github_action.build_cli_args({"mode": "random"})
@@ -67,6 +98,16 @@ def test_action_rejects_missing_required_input(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="state is required for verify mode"):
         github_action.build_cli_args({"mode": "verify", "contract": str(contract)})
+
+
+def test_action_rejects_missing_policy_input(tmp_path: Path) -> None:
+    contract = _file(tmp_path, "contract.yaml")
+    state = _file(tmp_path, "state.yaml")
+
+    with pytest.raises(ValueError, match="policy is required for policy mode"):
+        github_action.build_cli_args(
+            {"mode": "policy", "contract": str(contract), "state": str(state)}
+        )
 
 
 def test_action_rejects_missing_file(tmp_path: Path) -> None:
@@ -89,6 +130,10 @@ def test_action_rejects_missing_file(tmp_path: Path) -> None:
 )
 def test_exit_code_classification(code: int, expected: str) -> None:
     assert github_action.classify_exit_code(code) == expected
+
+
+def test_policy_failure_has_distinct_status() -> None:
+    assert github_action.classify_exit_code(1, "policy") == "POLICY_FAILURE"
 
 
 def test_business_failure_publishes_outputs_and_summary(

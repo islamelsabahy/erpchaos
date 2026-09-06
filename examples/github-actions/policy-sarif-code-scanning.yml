@@ -1,0 +1,47 @@
+name: ERPChaos Policy Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  business-reliability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Replace <PINNED_ERPCHAOS_COMMIT_SHA> with the immutable commit you approved.
+      - name: Run ERPChaos policy gate
+        id: erpchaos
+        continue-on-error: true
+        uses: islamelsabahy/erpchaos@<PINNED_ERPCHAOS_COMMIT_SHA>
+        with:
+          mode: policy
+          contract: reliability/property-sale.brc.yaml
+          state: reliability/transaction-state.yaml
+          policy: reliability/policy-gate.yaml
+          findings-output: .erpchaos/findings.json
+          sarif-output: .erpchaos/results.sarif
+
+      - name: Upload ERPChaos SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: .erpchaos/results.sarif
+          category: erpchaos-business-reliability
+
+      - name: Enforce ERPChaos policy status
+        if: always()
+        env:
+          STATUS: ${{ steps.erpchaos.outputs.status }}
+          EXIT_CODE: ${{ steps.erpchaos.outputs.exit-code }}
+        run: |
+          echo "ERPChaos status: $STATUS"
+          echo "ERPChaos exit code: $EXIT_CODE"
+          test "$EXIT_CODE" = "0"

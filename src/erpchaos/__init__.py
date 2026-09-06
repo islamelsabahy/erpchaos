@@ -1,3 +1,3 @@
 """ERPChaos: business transaction chaos engineering."""
 
-__version__ = "0.15.0a0"
+__version__ = "0.16.0a0"

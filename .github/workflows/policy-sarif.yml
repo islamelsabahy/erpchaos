@@ -1,0 +1,145 @@
+name: Policy and SARIF
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: policy outputs (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+
+      - name: Evaluate synthetic failing policy gate
+        shell: bash
+        run: |
+          set +e
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --findings-output /tmp/policy-findings.json \
+            --sarif-output /tmp/policy-results.sarif
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            echo "Expected policy violation exit code 1, got $status"
+            exit 1
+          fi
+
+      - name: Validate findings and SARIF shape
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          findings = json.loads(Path('/tmp/policy-findings.json').read_text(encoding='utf-8'))
+          sarif = json.loads(Path('/tmp/policy-results.sarif').read_text(encoding='utf-8'))
+          assert findings['schema'] == 'erpchaos.findings.v1'
+          assert len(findings['findings']) == 2
+          assert sarif['version'] == '2.1.0'
+          assert sarif['runs'][0]['tool']['driver']['name'] == 'ERPChaos'
+          assert len(sarif['runs'][0]['results']) == 2
+          assert [r['ruleId'] for r in sarif['runs'][0]['results']] == sorted(
+              r['ruleId'] for r in sarif['runs'][0]['results']
+          )
+          PY
+
+      - name: Prove SARIF round-trip determinism
+        run: |
+          erpchaos policy sarif /tmp/policy-findings.json --output /tmp/policy-rerendered.sarif
+          cmp /tmp/policy-results.sarif /tmp/policy-rerendered.sarif
+
+      - name: Upload policy outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: policy-outputs-${{ matrix.python-version }}
+          path: |
+            /tmp/policy-findings.json
+            /tmp/policy-results.sarif
+          if-no-files-found: error
+          retention-days: 7
+
+  consistency:
+    name: policy JSON and SARIF byte consistency
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download policy outputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: policy-outputs-*
+          path: policy
+          merge-multiple: false
+
+      - name: Compare Python 3.11 and 3.12 bytes
+        run: |
+          cmp \
+            policy/policy-outputs-3.11/policy-findings.json \
+            policy/policy-outputs-3.12/policy-findings.json
+          cmp \
+            policy/policy-outputs-3.11/policy-results.sarif \
+            policy/policy-outputs-3.12/policy-results.sarif
+          sha256sum policy/policy-outputs-*/*
+
+  action-policy:
+    name: composite action policy contract
+    needs: consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run local policy Action
+        id: policy-failure
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: policy
+          contract: examples/real-estate/property-sale.brc.yaml
+          state: examples/real-estate/policy-failing-state.synthetic.yaml
+          policy: examples/policy/strict-business-gate.yaml
+          findings-output: .erpchaos/findings.json
+          sarif-output: .erpchaos/results.sarif
+
+      - name: Assert policy Action contract
+        env:
+          OUTCOME: ${{ steps.policy-failure.outcome }}
+          STATUS: ${{ steps.policy-failure.outputs.status }}
+          EXIT_CODE: ${{ steps.policy-failure.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = "failure"
+          test "$STATUS" = "POLICY_FAILURE"
+          test "$EXIT_CODE" = "1"
+          test -s .erpchaos/findings.json
+          test -s .erpchaos/results.sarif
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          findings = json.loads(Path('.erpchaos/findings.json').read_text(encoding='utf-8'))
+          sarif = json.loads(Path('.erpchaos/results.sarif').read_text(encoding='utf-8'))
+          assert findings['schema'] == 'erpchaos.findings.v1'
+          assert sarif['version'] == '2.1.0'
+          PY
