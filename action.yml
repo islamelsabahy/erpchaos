@@ -8,7 +8,7 @@ branding:
 
 inputs:
   mode:
-    description: One of verify, chaos, or experiment.
+    description: One of verify, chaos, experiment, or policy.
     required: true
     default: verify
   contract:
@@ -16,7 +16,7 @@ inputs:
     required: false
     default: ""
   state:
-    description: Path to a transaction-state YAML file for verify mode.
+    description: Path to a transaction-state YAML file for verify or policy mode.
     required: false
     default: ""
   scenario:
@@ -27,6 +27,18 @@ inputs:
     description: Path to an event-stream YAML file for chaos or experiment mode.
     required: false
     default: ""
+  policy:
+    description: Path to a Policy Gate YAML file for policy mode.
+    required: false
+    default: ""
+  findings-output:
+    description: Optional canonical findings JSON output path for policy mode.
+    required: false
+    default: ""
+  sarif-output:
+    description: Optional SARIF 2.1.0 output path for policy mode.
+    required: false
+    default: ""
   python-version:
     description: Python version used to run ERPChaos.
     required: false
@@ -34,10 +46,10 @@ inputs:
 
 outputs:
   status:
-    description: PASS, BUSINESS_FAILURE, INVALID_INPUT, or EXECUTION_ERROR.
+    description: PASS, BUSINESS_FAILURE, POLICY_FAILURE, INVALID_INPUT, or EXECUTION_ERROR.
     value: ${{ steps.erpchaos.outputs.status }}
   exit-code:
-    description: ERPChaos exit code. 0=pass, 1=business failure, 2=invalid input/config.
+    description: ERPChaos exit code. 0=pass, 1=business/policy failure, 2=invalid input/config.
     value: ${{ steps.erpchaos.outputs.exit-code }}
 
 runs:
@@ -61,4 +73,7 @@ runs:
         ERPCHAOS_ACTION_STATE: ${{ inputs.state }}
         ERPCHAOS_ACTION_SCENARIO: ${{ inputs.scenario }}
         ERPCHAOS_ACTION_STREAM: ${{ inputs.stream }}
+        ERPCHAOS_ACTION_POLICY: ${{ inputs.policy }}
+        ERPCHAOS_ACTION_FINDINGS_OUTPUT: ${{ inputs.findings-output }}
+        ERPCHAOS_ACTION_SARIF_OUTPUT: ${{ inputs.sarif-output }}
       run: python -m erpchaos.github_action
