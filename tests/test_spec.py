@@ -71,7 +71,7 @@ def test_legacy_brc_inspection_and_normalization_add_explicit_schema() -> None:
     inspection = inspect_spec(_brc())
 
     assert inspection.kind is DocumentKind.brc
-    assert inspection.schema == "erpchaos.brc.v1"
+    assert inspection.schema_version == "erpchaos.brc.v1"
     assert inspection.legacy_implicit_schema is True
 
     normalized = normalize_spec(_brc())
@@ -84,7 +84,7 @@ def test_legacy_recovery_contract_normalizes_to_recovery_schema() -> None:
     normalized = normalize_spec(_recovery_contract())
 
     assert inspection.kind is DocumentKind.recovery_contract
-    assert inspection.schema == "erpchaos.recovery-contract.v1"
+    assert inspection.schema_version == "erpchaos.recovery-contract.v1"
     assert inspection.legacy_implicit_schema is True
     assert normalized["schema"] == "erpchaos.recovery-contract.v1"
     assert normalized["contract_type"] == "recovery"
