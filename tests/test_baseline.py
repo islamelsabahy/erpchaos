@@ -4,6 +4,7 @@ from erpchaos.baseline import (
     BaselineClassification,
     BaselineException,
     BaselineExceptionDocument,
+    accepted_known_fingerprints,
     canonical_baseline_json,
     capture_baseline,
     compare_baseline,
@@ -31,13 +32,11 @@ def test_known_and_resolved_findings() -> None:
     second = finding("two")
     baseline = capture_baseline("legacy", [first, second])
     report = compare_baseline(baseline, [first], evaluation_date=date(2026, 9, 7))
-    assert [item.classification for item in report.items] == [
-        BaselineClassification.resolved,
-        BaselineClassification.known,
-    ] or [item.classification for item in report.items] == [
+    classifications = {item.classification for item in report.items}
+    assert classifications == {
         BaselineClassification.known,
         BaselineClassification.resolved,
-    ]
+    }
     assert report.status == "PASS"
 
 
@@ -61,9 +60,9 @@ def test_severity_increase_is_regression() -> None:
     assert report.status == "FAIL"
 
 
-def test_exact_non_expired_exception_accepts_new_finding() -> None:
-    current = finding("new")
-    baseline = capture_baseline("legacy", [])
+def test_exact_non_expired_exception_accepts_known_finding() -> None:
+    current = finding("legacy")
+    baseline = capture_baseline("legacy", [current])
     exceptions = BaselineExceptionDocument(
         exceptions=[
             BaselineException(
@@ -80,13 +79,64 @@ def test_exact_non_expired_exception_accepts_new_finding() -> None:
         evaluation_date=date(2026, 9, 7),
         exceptions=exceptions,
     )
+    assert report.items[0].classification is BaselineClassification.known
     assert report.items[0].accepted_by_exception is True
+    assert accepted_known_fingerprints(report) == {finding_fingerprint(current)}
     assert report.status == "PASS"
 
 
-def test_expired_exception_fails_closed() -> None:
+def test_exception_cannot_accept_new_finding() -> None:
     current = finding("new")
     baseline = capture_baseline("legacy", [])
+    exceptions = BaselineExceptionDocument(
+        exceptions=[
+            BaselineException(
+                fingerprint=finding_fingerprint(current),
+                owner="finance-platform",
+                reason="must not suppress new debt",
+                expires_on=date(2026, 9, 30),
+            )
+        ]
+    )
+    report = compare_baseline(
+        baseline,
+        [current],
+        evaluation_date=date(2026, 9, 7),
+        exceptions=exceptions,
+    )
+    assert report.items[0].classification is BaselineClassification.new
+    assert report.items[0].accepted_by_exception is False
+    assert report.status == "FAIL"
+
+
+def test_exception_cannot_accept_regressed_finding() -> None:
+    previous = finding("payment", Severity.medium)
+    current = finding("payment", Severity.critical)
+    baseline = capture_baseline("legacy", [previous])
+    exceptions = BaselineExceptionDocument(
+        exceptions=[
+            BaselineException(
+                fingerprint=finding_fingerprint(current),
+                owner="finance-platform",
+                reason="must not suppress regression",
+                expires_on=date(2026, 9, 30),
+            )
+        ]
+    )
+    report = compare_baseline(
+        baseline,
+        [current],
+        evaluation_date=date(2026, 9, 7),
+        exceptions=exceptions,
+    )
+    assert report.items[0].classification is BaselineClassification.regressed
+    assert report.items[0].accepted_by_exception is False
+    assert report.status == "FAIL"
+
+
+def test_expired_known_exception_fails_closed() -> None:
+    current = finding("legacy")
+    baseline = capture_baseline("legacy", [current])
     exceptions = BaselineExceptionDocument(
         exceptions=[
             BaselineException(
@@ -106,6 +156,30 @@ def test_expired_exception_fails_closed() -> None:
     assert report.expired_exception_count == 1
     assert report.items[0].accepted_by_exception is False
     assert report.status == "FAIL"
+
+
+def test_expired_exception_for_resolved_finding_does_not_block() -> None:
+    previous = finding("resolved")
+    baseline = capture_baseline("legacy", [previous])
+    exceptions = BaselineExceptionDocument(
+        exceptions=[
+            BaselineException(
+                fingerprint=finding_fingerprint(previous),
+                owner="finance-platform",
+                reason="debt is gone",
+                expires_on=date(2026, 9, 6),
+            )
+        ]
+    )
+    report = compare_baseline(
+        baseline,
+        [],
+        evaluation_date=date(2026, 9, 7),
+        exceptions=exceptions,
+    )
+    assert report.items[0].classification is BaselineClassification.resolved
+    assert report.expired_exception_count == 0
+    assert report.status == "PASS"
 
 
 def test_canonical_report_is_deterministic() -> None:
