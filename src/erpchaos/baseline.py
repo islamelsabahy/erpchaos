@@ -205,6 +205,13 @@ def accepted_known_fingerprints(report: BaselineComparisonReport) -> set[str]:
     }
 
 
+def filter_policy_findings(
+    findings: list[Finding], report: BaselineComparisonReport
+) -> list[Finding]:
+    accepted = accepted_known_fingerprints(report)
+    return [item for item in findings if finding_fingerprint(item) not in accepted]
+
+
 def canonical_baseline_json(model: BaseModel) -> str:
     payload = model.model_dump(mode="json", by_alias=True, exclude_none=True)
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
