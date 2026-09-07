@@ -8,6 +8,7 @@ from erpchaos.baseline import (
     canonical_baseline_json,
     capture_baseline,
     compare_baseline,
+    filter_policy_findings,
     finding_fingerprint,
 )
 from erpchaos.models import Severity
@@ -82,6 +83,7 @@ def test_exact_non_expired_exception_accepts_known_finding() -> None:
     assert report.items[0].classification is BaselineClassification.known
     assert report.items[0].accepted_by_exception is True
     assert accepted_known_fingerprints(report) == {finding_fingerprint(current)}
+    assert filter_policy_findings([current], report) == []
     assert report.status == "PASS"
 
 
@@ -106,6 +108,7 @@ def test_exception_cannot_accept_new_finding() -> None:
     )
     assert report.items[0].classification is BaselineClassification.new
     assert report.items[0].accepted_by_exception is False
+    assert filter_policy_findings([current], report) == [current]
     assert report.status == "FAIL"
 
 
@@ -131,6 +134,7 @@ def test_exception_cannot_accept_regressed_finding() -> None:
     )
     assert report.items[0].classification is BaselineClassification.regressed
     assert report.items[0].accepted_by_exception is False
+    assert filter_policy_findings([current], report) == [current]
     assert report.status == "FAIL"
 
 
@@ -155,6 +159,7 @@ def test_expired_known_exception_fails_closed() -> None:
     )
     assert report.expired_exception_count == 1
     assert report.items[0].accepted_by_exception is False
+    assert filter_policy_findings([current], report) == [current]
     assert report.status == "FAIL"
 
 
