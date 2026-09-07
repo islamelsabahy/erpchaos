@@ -142,12 +142,6 @@ def compare_baseline(
         previous = baseline_by_fingerprint.get(fingerprint)
         current = current_by_fingerprint.get(fingerprint)
         exception = exception_by_fingerprint.get(fingerprint)
-        accepted = False
-        if exception is not None:
-            if exception.expires_on < evaluation_date:
-                expired_exception_count += 1
-            else:
-                accepted = True
 
         if previous is None and current is not None:
             classification = BaselineClassification.new
@@ -155,7 +149,6 @@ def compare_baseline(
         elif previous is not None and current is None:
             classification = BaselineClassification.resolved
             rule_id = previous.rule_id
-            accepted = False
         else:
             assert previous is not None and current is not None
             classification = (
@@ -164,6 +157,13 @@ def compare_baseline(
                 else BaselineClassification.known
             )
             rule_id = current.rule_id
+
+        accepted = False
+        if exception is not None and classification is BaselineClassification.known:
+            if exception.expires_on < evaluation_date:
+                expired_exception_count += 1
+            else:
+                accepted = True
 
         items.append(
             BaselineComparisonItem(
@@ -182,7 +182,6 @@ def compare_baseline(
         item
         for item in items
         if item.classification in {BaselineClassification.new, BaselineClassification.regressed}
-        and not item.accepted_by_exception
     ]
     status = "FAIL" if blocking or expired_exception_count else "PASS"
     return BaselineComparisonReport(
@@ -196,6 +195,14 @@ def compare_baseline(
         ),
         expired_exception_count=expired_exception_count,
     )
+
+
+def accepted_known_fingerprints(report: BaselineComparisonReport) -> set[str]:
+    return {
+        item.fingerprint
+        for item in report.items
+        if item.classification is BaselineClassification.known and item.accepted_by_exception
+    }
 
 
 def canonical_baseline_json(model: BaseModel) -> str:
