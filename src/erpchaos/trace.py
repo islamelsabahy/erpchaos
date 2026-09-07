@@ -34,7 +34,7 @@ class TransactionTrace(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal["erpchaos.transaction-trace.v1"] = Field(
-        default=TRACE_SCHEMA,
+        default="erpchaos.transaction-trace.v1",
         alias="schema",
     )
     trace_id: str = Field(min_length=1)
@@ -61,7 +61,7 @@ class TraceDiagnostics(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal["erpchaos.trace-diagnostics.v1"] = Field(
-        default=TRACE_DIAGNOSTICS_SCHEMA,
+        default="erpchaos.trace-diagnostics.v1",
         alias="schema",
     )
     trace_id: str
