@@ -15,6 +15,8 @@ TRACE_DIAGNOSTICS_SCHEMA = "erpchaos.trace-diagnostics.v1"
 class TraceEvent(BaseModel):
     """One sanitized vendor-neutral event in a correlated business transaction trace."""
 
+    model_config = ConfigDict(extra="forbid")
+
     event_id: str = Field(min_length=1)
     event_type: str = Field(min_length=1)
     transaction_id: str = Field(min_length=1)
@@ -29,7 +31,7 @@ class TraceEvent(BaseModel):
 class TransactionTrace(BaseModel):
     """Canonical offline transaction-trace document."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal["erpchaos.transaction-trace.v1"] = Field(
         default=TRACE_SCHEMA,
@@ -43,6 +45,8 @@ class TransactionTrace(BaseModel):
 class TraceIssue(BaseModel):
     """One stable deterministic trace-correlation diagnostic."""
 
+    model_config = ConfigDict(extra="forbid")
+
     issue_id: str
     code: str
     severity: Literal["ERROR"] = "ERROR"
@@ -54,7 +58,7 @@ class TraceIssue(BaseModel):
 class TraceDiagnostics(BaseModel):
     """Deterministic validation and ordering result for a transaction trace."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     schema_version: Literal["erpchaos.trace-diagnostics.v1"] = Field(
         default=TRACE_DIAGNOSTICS_SCHEMA,
