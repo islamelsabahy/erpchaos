@@ -65,6 +65,26 @@ def test_valid_trace_reconstructs_deterministic_path() -> None:
     assert diagnostics.issues == []
 
 
+def test_unknown_canonical_trace_field_is_rejected() -> None:
+    payload = _trace().model_dump(mode="json", by_alias=True)
+    payload["unexpected"] = "must-fail-closed"
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        TransactionTrace.model_validate(payload)
+
+
+def test_unknown_canonical_event_field_is_rejected() -> None:
+    payload = _trace().model_dump(mode="json", by_alias=True)
+    events = payload["events"]
+    assert isinstance(events, list)
+    first = events[0]
+    assert isinstance(first, dict)
+    first["unexpected"] = "must-fail-closed"
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        TransactionTrace.model_validate(payload)
+
+
 def test_projection_preserves_business_event_semantics() -> None:
     stream = project_trace(_trace())
 
