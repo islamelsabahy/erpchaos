@@ -1,0 +1,47 @@
+schema: erpchaos.transaction-trace.v1
+trace_id: synthetic-property-sale-divergent-001
+transaction_id: property-sale-divergent-001
+events:
+  - event_id: observed-reservation-001
+    event_type: reservation.created
+    transaction_id: property-sale-divergent-001
+    source_system: crm
+    sequence: 10
+    payload:
+      unit_ref: UNIT-DEMO-203
+  - event_id: observed-finance-001
+    event_type: finance.approved
+    transaction_id: property-sale-divergent-001
+    source_system: finance
+    sequence: 20
+    parent_event_id: observed-reservation-001
+    causation_event_id: observed-reservation-001
+    payload:
+      approval_ref: APPROVAL-DEMO-OBSERVED-001
+  - event_id: observed-payment-001
+    event_type: payment.rejected
+    transaction_id: property-sale-divergent-001
+    source_system: accounting
+    sequence: 30
+    parent_event_id: observed-finance-001
+    causation_event_id: observed-finance-001
+    payload:
+      reason: synthetic-decline
+  - event_id: observed-contract-001
+    event_type: contract.signed
+    transaction_id: property-sale-divergent-001
+    source_system: erp
+    sequence: 40
+    parent_event_id: observed-payment-001
+    causation_event_id: observed-payment-001
+    payload:
+      contract_ref: CONTRACT-DEMO-OBSERVED-001
+  - event_id: observed-unit-sold-001
+    event_type: unit.sold
+    transaction_id: property-sale-divergent-001
+    source_system: erp
+    sequence: 50
+    parent_event_id: observed-contract-001
+    causation_event_id: observed-contract-001
+    payload:
+      unit_ref: UNIT-DEMO-203

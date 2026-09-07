@@ -18,9 +18,15 @@ from erpchaos.trace import (
     diagnostics_json,
     project_trace,
 )
+from erpchaos.trace_divergence import (
+    InvalidTraceComparisonError,
+    TraceDivergenceKind,
+    compare_traces,
+    divergence_json,
+)
 
 trace_app = typer.Typer(
-    help="Inspect, validate, adapt, and project sanitized business transaction traces.",
+    help="Inspect, validate, compare, adapt, and project sanitized business transaction traces.",
     no_args_is_help=True,
 )
 console = Console()
@@ -129,6 +135,66 @@ def validate_command(
             console.print(f"- {issue.code}: {issue.message} ({issue.issue_id})")
 
     if not diagnostics.valid:
+        raise typer.Exit(code=1)
+
+
+@trace_app.command("compare")
+def compare_command(
+    reference: Path,
+    observed: Path,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit deterministic trace-divergence JSON."),
+    ] = False,
+) -> None:
+    """Locate the first explicit semantic divergence between two valid traces."""
+
+    try:
+        reference_trace = _load_trace(reference)
+        observed_trace = _load_trace(observed)
+    except (OSError, yaml.YAMLError, ValidationError, ValueError) as exc:
+        _render_input_error(exc)
+        raise typer.Exit(code=2) from exc
+
+    try:
+        report = compare_traces(reference_trace, observed_trace)
+    except InvalidTraceComparisonError as exc:
+        console.print(f"[red]Trace comparison refused:[/red] invalid {exc.side} trace")
+        for issue in exc.diagnostics.issues:
+            console.print(f"- {issue.code}: {issue.message} ({issue.issue_id})")
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(divergence_json(report), nl=False)
+    else:
+        table = Table(title="ERPChaos Trace Divergence Frontier")
+        table.add_column("Field")
+        table.add_column("Value")
+        table.add_row("Status", report.status.value)
+        table.add_row("Common prefix", str(report.common_prefix_length))
+        table.add_row(
+            "Divergence index",
+            "-" if report.divergence_index is None else str(report.divergence_index),
+        )
+        table.add_row("Reason", report.reason)
+        if report.reference_step is not None:
+            table.add_row(
+                "Reference frontier",
+                f"{report.reference_step.event_type} @ {report.reference_step.source_system}",
+            )
+        if report.observed_step is not None:
+            table.add_row(
+                "Observed frontier",
+                f"{report.observed_step.event_type} @ {report.observed_step.source_system}",
+            )
+        if report.observed_causal_descendant_ids:
+            table.add_row(
+                "Observed descendants",
+                ", ".join(report.observed_causal_descendant_ids),
+            )
+        console.print(table)
+
+    if report.status is not TraceDivergenceKind.exact:
         raise typer.Exit(code=1)
 
 
