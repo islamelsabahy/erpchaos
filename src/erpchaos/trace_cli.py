@@ -11,8 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 from erpchaos.trace import (
-    TransactionTrace,
     TraceProjectionError,
+    TransactionTrace,
     diagnose_trace,
     diagnostics_json,
     project_trace,
