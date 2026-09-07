@@ -28,6 +28,13 @@ def _load_findings(path: Path) -> FindingDocument:
     return FindingDocument.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def _parse_evaluation_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("evaluation date must use YYYY-MM-DD") from exc
+
+
 @baseline_app.command("capture")
 def capture_command(
     findings: Path,
@@ -51,7 +58,7 @@ def compare_command(
     baseline: Path,
     findings: Path,
     evaluation_date: Annotated[
-        date,
+        str,
         typer.Option("--evaluation-date", help="Explicit deterministic YYYY-MM-DD boundary."),
     ],
     exceptions: Annotated[
@@ -77,7 +84,7 @@ def compare_command(
         report = compare_baseline(
             baseline_model,
             current.findings,
-            evaluation_date=evaluation_date,
+            evaluation_date=_parse_evaluation_date(evaluation_date),
             exceptions=exception_model,
         )
     except (OSError, ValidationError, ValueError) as exc:
