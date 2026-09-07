@@ -1,0 +1,85 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "crm"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "otel-trace-demo-001",
+              "spanId": "span-reservation-001",
+              "name": "reservation",
+              "startTimeUnixNano": "1000",
+              "attributes": [
+                {"key": "erpchaos.transaction_id", "value": {"stringValue": "property-sale-otel-001"}},
+                {"key": "erpchaos.event_type", "value": {"stringValue": "reservation.created"}},
+                {"key": "erpchaos.sequence", "value": {"intValue": "10"}},
+                {"key": "erpchaos.payload.unit_ref", "value": {"stringValue": "UNIT-DEMO-203"}}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "finance"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "otel-trace-demo-001",
+              "spanId": "span-finance-001",
+              "parentSpanId": "span-reservation-001",
+              "name": "finance approval",
+              "startTimeUnixNano": "2000",
+              "attributes": [
+                {"key": "erpchaos.transaction_id", "value": {"stringValue": "property-sale-otel-001"}},
+                {"key": "erpchaos.event_type", "value": {"stringValue": "finance.approved"}},
+                {"key": "erpchaos.sequence", "value": {"intValue": "20"}},
+                {"key": "erpchaos.causation_span_id", "value": {"stringValue": "span-reservation-001"}},
+                {"key": "erpchaos.payload.approval_ref", "value": {"stringValue": "APPROVAL-DEMO-001"}}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "accounting"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "otel-trace-demo-001",
+              "spanId": "span-payment-001",
+              "parentSpanId": "span-finance-001",
+              "name": "payment",
+              "startTimeUnixNano": "3000",
+              "attributes": [
+                {"key": "erpchaos.transaction_id", "value": {"stringValue": "property-sale-otel-001"}},
+                {"key": "erpchaos.event_type", "value": {"stringValue": "payment.received"}},
+                {"key": "erpchaos.sequence", "value": {"intValue": "30"}},
+                {"key": "erpchaos.causation_span_id", "value": {"stringValue": "span-finance-001"}},
+                {"key": "erpchaos.payload.amount_minor", "value": {"intValue": "2500000"}},
+                {"key": "erpchaos.payload.currency", "value": {"stringValue": "EGP"}},
+                {"key": "http.request.header.authorization", "value": {"stringValue": "ignored-by-adapter"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
