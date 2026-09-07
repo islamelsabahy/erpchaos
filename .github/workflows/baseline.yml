@@ -64,16 +64,19 @@ jobs:
           from pathlib import Path
 
           baseline = json.loads(Path('.erpchaos/baseline.json').read_text())
-          fingerprint = baseline['entries'][0]['fingerprint']
+          fingerprints = [entry['fingerprint'] for entry in baseline['entries']]
           for name, expiry in [('accepted', '2026-09-30'), ('expired', '2026-09-06')]:
               payload = {
                   'schema': 'erpchaos.baseline-exceptions.v1',
-                  'exceptions': [{
-                      'fingerprint': fingerprint,
-                      'owner': 'finance-platform-team',
-                      'reason': 'synthetic legacy reliability debt',
-                      'expires_on': expiry,
-                  }],
+                  'exceptions': [
+                      {
+                          'fingerprint': fingerprint,
+                          'owner': 'finance-platform-team',
+                          'reason': 'synthetic legacy reliability debt',
+                          'expires_on': expiry,
+                      }
+                      for fingerprint in fingerprints
+                  ],
               }
               Path(f'.erpchaos/{name}-exceptions.json').write_text(
                   json.dumps(payload, sort_keys=True, separators=(',', ':')) + '\n'
@@ -92,8 +95,18 @@ jobs:
           from pathlib import Path
           report = json.loads(Path('.erpchaos/comparison.json').read_text())
           assert report['status'] == 'PASS'
-          assert any(item['accepted_by_exception'] for item in report['items'])
+          assert all(item['accepted_by_exception'] for item in report['items'])
           PY
+      - name: Verify baseline-aware policy suppresses accepted known debt
+        run: |
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --baseline .erpchaos/baseline.json \
+            --exceptions .erpchaos/accepted-exceptions.json \
+            --evaluation-date 2026-09-07 \
+            --baseline-report-output .erpchaos/policy-baseline-report.json
       - name: Verify new finding fails
         shell: bash
         run: |
@@ -126,9 +139,11 @@ jobs:
         shell: bash
         run: |
           set +e
-          erpchaos baseline compare \
-            .erpchaos/baseline.json \
-            .erpchaos/findings.json \
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --baseline .erpchaos/baseline.json \
             --exceptions .erpchaos/expired-exceptions.json \
             --evaluation-date 2026-09-07
           code=$?
@@ -141,6 +156,7 @@ jobs:
           path: |
             .erpchaos/baseline.json
             .erpchaos/comparison.json
+            .erpchaos/policy-baseline-report.json
           if-no-files-found: error
 
   baseline-byte-consistency:
@@ -160,4 +176,5 @@ jobs:
         run: |
           cmp py311/baseline.json py312/baseline.json
           cmp py311/comparison.json py312/comparison.json
-          sha256sum py311/baseline.json py311/comparison.json
+          cmp py311/policy-baseline-report.json py312/policy-baseline-report.json
+          sha256sum py311/baseline.json py311/comparison.json py311/policy-baseline-report.json
