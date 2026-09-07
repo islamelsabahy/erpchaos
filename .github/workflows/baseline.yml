@@ -1,0 +1,180 @@
+name: Reliability Baselines
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-outputs:
+    name: baseline outputs (${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Generate deterministic policy findings
+        shell: bash
+        run: |
+          mkdir -p .erpchaos
+          set +e
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --findings-output .erpchaos/findings.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+      - name: Build baseline fixtures
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          findings = json.loads(Path('.erpchaos/findings.json').read_text())
+          Path('.erpchaos/empty-findings.json').write_text(
+              json.dumps({'schema': 'erpchaos.findings.v1', 'findings': []}, sort_keys=True, separators=(',', ':')) + '\n'
+          )
+          regressed = json.loads(Path('.erpchaos/findings.json').read_text())
+          regressed['findings'][0]['severity'] = 'critical'
+          Path('.erpchaos/regressed-findings.json').write_text(
+              json.dumps(regressed, sort_keys=True, separators=(',', ':')) + '\n'
+          )
+          PY
+          erpchaos baseline capture .erpchaos/findings.json \
+            --name legacy-property-sale \
+            --output .erpchaos/baseline.json
+          erpchaos baseline capture .erpchaos/empty-findings.json \
+            --name empty \
+            --output .erpchaos/empty-baseline.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          baseline = json.loads(Path('.erpchaos/baseline.json').read_text())
+          fingerprints = [entry['fingerprint'] for entry in baseline['entries']]
+          for name, expiry in [('accepted', '2026-09-30'), ('expired', '2026-09-06')]:
+              payload = {
+                  'schema': 'erpchaos.baseline-exceptions.v1',
+                  'exceptions': [
+                      {
+                          'fingerprint': fingerprint,
+                          'owner': 'finance-platform-team',
+                          'reason': 'synthetic legacy reliability debt',
+                          'expires_on': expiry,
+                      }
+                      for fingerprint in fingerprints
+                  ],
+              }
+              Path(f'.erpchaos/{name}-exceptions.json').write_text(
+                  json.dumps(payload, sort_keys=True, separators=(',', ':')) + '\n'
+              )
+          PY
+      - name: Verify known accepted baseline
+        run: |
+          erpchaos baseline compare \
+            .erpchaos/baseline.json \
+            .erpchaos/findings.json \
+            --exceptions .erpchaos/accepted-exceptions.json \
+            --evaluation-date 2026-09-07 \
+            --output .erpchaos/comparison.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('.erpchaos/comparison.json').read_text())
+          assert report['status'] == 'PASS'
+          assert all(item['accepted_by_exception'] for item in report['items'])
+          PY
+      - name: Verify baseline-aware policy suppresses accepted known debt
+        run: |
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --baseline .erpchaos/baseline.json \
+            --exceptions .erpchaos/accepted-exceptions.json \
+            --evaluation-date 2026-09-07 \
+            --baseline-report-output .erpchaos/policy-baseline-report.json
+      - name: Verify new finding fails
+        shell: bash
+        run: |
+          set +e
+          erpchaos baseline compare \
+            .erpchaos/empty-baseline.json \
+            .erpchaos/findings.json \
+            --evaluation-date 2026-09-07
+          code=$?
+          set -e
+          test "$code" -eq 1
+      - name: Verify resolved finding passes
+        run: |
+          erpchaos baseline compare \
+            .erpchaos/baseline.json \
+            .erpchaos/empty-findings.json \
+            --evaluation-date 2026-09-07 > /dev/null
+      - name: Verify severity regression fails
+        shell: bash
+        run: |
+          set +e
+          erpchaos baseline compare \
+            .erpchaos/baseline.json \
+            .erpchaos/regressed-findings.json \
+            --evaluation-date 2026-09-07
+          code=$?
+          set -e
+          test "$code" -eq 1
+      - name: Verify expired known exception fails closed
+        shell: bash
+        run: |
+          set +e
+          erpchaos policy evaluate \
+            examples/real-estate/property-sale.brc.yaml \
+            examples/real-estate/policy-failing-state.synthetic.yaml \
+            examples/policy/strict-business-gate.yaml \
+            --baseline .erpchaos/baseline.json \
+            --exceptions .erpchaos/expired-exceptions.json \
+            --evaluation-date 2026-09-07
+          code=$?
+          set -e
+          test "$code" -eq 1
+      - name: Upload deterministic baseline outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: baseline-${{ matrix.python-version }}
+          path: |
+            .erpchaos/baseline.json
+            .erpchaos/comparison.json
+            .erpchaos/policy-baseline-report.json
+          if-no-files-found: error
+
+  baseline-byte-consistency:
+    name: baseline byte consistency
+    needs: baseline-outputs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: baseline-3.11
+          path: py311
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: baseline-3.12
+          path: py312
+      - name: Compare canonical bytes
+        run: |
+          cmp py311/baseline.json py312/baseline.json
+          cmp py311/comparison.json py312/comparison.json
+          cmp py311/policy-baseline-report.json py312/policy-baseline-report.json
+          sha256sum py311/baseline.json py311/comparison.json py311/policy-baseline-report.json
